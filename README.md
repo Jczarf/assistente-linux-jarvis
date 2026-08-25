@@ -1,77 +1,145 @@
+<p align="center">
+  <img src="assets/capa.svg" alt="J.A.R.V.I.S. — Assistente Inteligente para Linux" width="100%">
+</p>
+
 # J.A.R.V.I.S. — Assistente Inteligente para Linux
 
-Projeto de assistente pessoal para Linux com integração a modelos de linguagem, interação por voz e texto, automação do sistema e execução de ferramentas locais.
+Assistente pessoal modular para Linux que conecta **LLMs, function calling e automação local**. Esta edição foi refatorada para portfólio: remove configurações pessoais, segredos, caminhos fixos e dependências desnecessariamente específicas do computador de desenvolvimento.
 
-> **Portfólio técnico:** este repositório apresenta arquitetura, decisões de projeto e capacidades do sistema sem expor o código-fonte completo ou configurações privadas do ambiente original.
+> **Estado:** edição pública sanitizada e executável. O projeto original possui módulos experimentais adicionais; aqui ficam apenas componentes apropriados para demonstração e estudo.
 
-## Visão geral
+## O que o projeto demonstra
 
-O J.A.R.V.I.S. foi desenvolvido como um laboratório prático de **IA aplicada a software, automação e Linux**. A aplicação combina um modelo de linguagem com um conjunto modular de ferramentas capazes de observar o contexto do sistema e executar ações reais mediante solicitação do usuário.
+- integração de IA com ferramentas locais;
+- arquitetura modular em Python;
+- configuração segura por variáveis de ambiente;
+- execução de comandos com política de segurança;
+- memória SQLite opcional e local;
+- descoberta de aplicações de forma portátil;
+- tratamento explícito de diferenças entre distribuições Linux;
+- testes automatizados e CI.
 
-O projeto possui diferentes modos de operação:
+## Arquitetura
 
-- interface gráfica;
-- interação contínua por voz;
-- modo texto em terminal;
-- execução em segundo plano com palavra de ativação.
+<p align="center">
+  <img src="assets/arquitetura.svg" alt="Arquitetura simplificada" width="900">
+</p>
 
-## Principais capacidades
+O modelo **não executa ações diretamente**. Ele solicita uma ferramenta, o dispatcher valida a chamada e somente então uma ação local é executada.
 
-- integração com Gemini para texto, voz e function calling;
-- automação de aplicativos, janelas, teclado e mouse;
-- coleta de informações do sistema Linux;
-- gerenciamento de arquivos e processos;
-- controle de rede, Bluetooth, áudio e serviços;
-- automação de navegador;
-- análise de tela com visão computacional;
-- memória persistente local;
-- pesquisa e leitura de conteúdo web;
-- ferramentas auxiliares para estudo, código e produtividade.
+```text
+Usuário → LLM → Function Calling → Dispatcher → Política de segurança → Linux
+                                              ↓
+                                        resultado estruturado
+                                              ↓
+                                           resposta
+```
+
+Mais detalhes em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 
 ## Stack
 
-`Python` · `Gemini API` · `Gemini Live` · `Linux` · `Tkinter` · `PipeWire` · `OpenWakeWord` · `Playwright` · `SQLite`
+`Python 3.11+` · `Gemini API` · `SQLite` · `python-dotenv` · `psutil`
 
-## Arquitetura resumida
+Recursos avançados como voz, interface gráfica, wake word, visão e automação de navegador são extensões opcionais da arquitetura original e estão documentados separadamente.
 
-```text
-Voz / Texto / GUI
-       │
-       ▼
-Modelo de linguagem
-       │
-       ▼
-Function calling / Dispatcher
-       │
-       ├── Sistema Linux
-       ├── Aplicativos e janelas
-       ├── Arquivos e processos
-       ├── Navegador
-       ├── Tela / visão
-       ├── Rede e serviços
-       └── Memória local
-       │
-       ▼
-Resultado → modelo → usuário
+## Instalação
+
+```bash
+git clone https://github.com/Jczarf/assistente-linux-jarvis.git
+cd assistente-linux-jarvis
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env
+# adicione sua própria GEMINI_API_KEY no arquivo .env
+
+python main.py
 ```
 
-A implementação foi organizada em módulos separados para configuração, sessão de IA, interface, memória, contexto e ações do sistema. Isso permite adicionar novas ferramentas sem concentrar toda a lógica em um único arquivo.
+## Configuração
 
-## Segurança e limites
+```env
+GEMINI_API_KEY=sua_chave_aqui
+JARVIS_MODEL=gemini-2.5-flash
+JARVIS_NAME=JARVIS
+JARVIS_MEMORY_ENABLED=false
+JARVIS_ALLOW_SHELL=false
+```
 
-Dar a um LLM acesso a ferramentas do sistema cria riscos importantes. Por isso, o projeto inclui mecanismos como validação de comandos, bloqueios para operações destrutivas, limites de execução, proteção de caminhos e registro de ações.
+A edição pública adota defaults conservadores: **memória persistente e shell genérico vêm desativados**. Eles precisam ser habilitados explicitamente.
 
-Essas proteções são tratadas como **camadas de redução de risco**, e não como uma sandbox infalível. Operações sensíveis devem continuar exigindo validação e confirmação explícita.
+## Compatibilidade
 
-## IA no processo de desenvolvimento
+A camada pública evita caminhos hardcoded e tenta descobrir recursos usando `PATH`, variáveis XDG e ferramentas disponíveis no sistema.
 
-O projeto também foi utilizado para experimentar desenvolvimento assistido por IA ao longo do ciclo de software: planejamento, implementação, refatoração, análise de falhas, documentação e revisão de soluções.
+| Ambiente | Situação |
+|---|---|
+| Linux Mint / Ubuntu / Debian | principal alvo |
+| Fedora | compatível com funções básicas |
+| Arch Linux | compatível com funções básicas |
+| Wayland | CLI funciona; automação gráfica depende do ambiente |
+| Windows/macOS | fora do escopo desta edição |
 
-As alterações geradas ou sugeridas por IA são tratadas como propostas que precisam ser revisadas e validadas antes da integração.
+Veja [`docs/COMPATIBILIDADE.md`](docs/COMPATIBILIDADE.md).
 
-## Status
+## Segurança
 
-Projeto pessoal em evolução. A versão completa permanece em repositório privado enquanto componentes, configurações e dados específicos do ambiente são sanitizados para eventual publicação seletiva.
+Dar ferramentas locais a um LLM exige limites explícitos. Esta versão:
+
+- não contém chaves de API;
+- não contém IPs, senhas, e-mails privados ou caminhos pessoais;
+- mantém `.env` e bancos locais fora do Git;
+- bloqueia padrões destrutivos no shell;
+- desativa shell por padrão;
+- limita tamanho e tempo de comandos;
+- recomenda confirmação humana para ações sensíveis;
+- mantém dados de memória somente no computador do usuário.
+
+Essas proteções **reduzem risco, mas não constituem uma sandbox formal**. Leia [`docs/SEGURANCA.md`](docs/SEGURANCA.md).
+
+## Demonstração
+
+<p align="center">
+  <img src="assets/demo-terminal.svg" alt="Exemplo conceitual de uso no terminal" width="820">
+</p>
+
+Exemplo:
+
+```text
+Você: mostre o uso de memória do computador
+JARVIS: [tool: system_info]
+JARVIS: RAM em uso: 7,2 GB de 16 GB (45%).
+```
+
+## Estrutura
+
+```text
+.
+├── main.py
+├── jarvis/
+│   ├── config.py
+│   ├── core.py
+│   ├── memory.py
+│   ├── security.py
+│   └── tools.py
+├── tests/
+├── assets/
+├── docs/
+├── .env.example
+├── .gitignore
+└── requirements.txt
+```
+
+## IA aplicada ao desenvolvimento
+
+O projeto também serviu como ambiente de experimentação com desenvolvimento assistido por IA: planejamento, implementação, revisão, testes, documentação e investigação de falhas. Sugestões produzidas por agentes são tratadas como propostas e passam por revisão antes de serem incorporadas.
+
+## Limitações conhecidas
+
+Esta edição de portfólio não tenta replicar integralmente o ambiente privado. Integrações que dependem de hardware, desktop environment ou permissões elevadas foram deliberadamente reduzidas ou removidas para tornar o código público mais seguro e reproduzível.
 
 ## Autor
 
@@ -79,3 +147,7 @@ Projeto pessoal em evolução. A versão completa permanece em repositório priv
 Estudante de Ciência da Computação · Técnico em Desenvolvimento de Sistemas
 
 [LinkedIn](https://www.linkedin.com/in/j%C3%BAlio-c%C3%A9zar-0a26152b2/) · [GitHub](https://github.com/Jczarf)
+
+## Uso do código
+
+Código disponibilizado para avaliação de portfólio e estudo. Consulte [`LICENSE`](LICENSE) antes de reutilizar ou redistribuir.
