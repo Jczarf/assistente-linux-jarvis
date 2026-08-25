@@ -4,9 +4,22 @@
 
 # J.A.R.V.I.S. — Assistente Inteligente para Linux
 
-Assistente pessoal modular para Linux que conecta **LLMs, function calling e automação local**. Esta edição foi refatorada para portfólio: remove configurações pessoais, segredos, caminhos fixos e dependências desnecessariamente específicas do computador de desenvolvimento.
+Protótipo pessoal em evolução de um assistente para Linux que conecta **LLMs, function calling e automação local**. Esta edição foi refatorada para portfólio, removendo configurações pessoais, segredos, caminhos fixos e partes excessivamente acopladas ao computador de desenvolvimento.
 
-> **Estado:** edição pública sanitizada e executável. O projeto original possui módulos experimentais adicionais; aqui ficam apenas componentes apropriados para demonstração e estudo.
+> **Estado real:** esta não é a versão completa do assistente original e não deve ser apresentada como produto finalizado. Há um núcleo público funcional e sanitizado; recursos mais avançados continuam experimentais, privados ou ainda não foram portados.
+
+## Estado do projeto
+
+| Área | Estado |
+|---|---|
+| CLI, Gemini, function calling e ferramentas básicas | ✅ Implementado nesta edição |
+| Memória SQLite opcional | ✅ Implementado nesta edição |
+| Política básica de segurança para shell | 🧪 Implementada, mas não é sandbox formal |
+| Testes | ✅ Incluídos no repositório |
+| GitHub Actions | 🧪 Configurado; CI verde ainda deve ser confirmado por execução |
+| GUI completa, voz, wake word, visão e automação ampla | 📋 Pertencem ao protótipo privado / não portados integralmente |
+
+Detalhamento: [`docs/ESTADO-DO-PROJETO.md`](docs/ESTADO-DO-PROJETO.md).
 
 ## O que o projeto demonstra
 
@@ -17,7 +30,7 @@ Assistente pessoal modular para Linux que conecta **LLMs, function calling e aut
 - memória SQLite opcional e local;
 - descoberta de aplicações de forma portátil;
 - tratamento explícito de diferenças entre distribuições Linux;
-- testes automatizados e CI.
+- criação de testes e configuração de CI.
 
 ## Arquitetura
 
@@ -41,7 +54,7 @@ Mais detalhes em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 
 `Python 3.11+` · `Gemini API` · `SQLite` · `python-dotenv` · `psutil`
 
-Recursos avançados como voz, interface gráfica, wake word, visão e automação de navegador são extensões opcionais da arquitetura original e estão documentados separadamente.
+Recursos avançados como voz, interface gráfica, wake word, visão e automação de navegador pertencem ao protótipo original e estão documentados como extensões, não como funcionalidades concluídas desta edição.
 
 ## Instalação
 
@@ -77,13 +90,13 @@ A camada pública evita caminhos hardcoded e tenta descobrir recursos usando `PA
 
 | Ambiente | Situação |
 |---|---|
-| Linux Mint / Ubuntu / Debian | principal alvo |
-| Fedora | compatível com funções básicas |
-| Arch Linux | compatível com funções básicas |
-| Wayland | CLI funciona; automação gráfica depende do ambiente |
-| Windows/macOS | fora do escopo desta edição |
+| Linux Mint / Ubuntu / Debian | alvo principal |
+| Fedora | funções básicas projetadas para funcionar |
+| Arch Linux | funções básicas projetadas para funcionar |
+| Wayland | CLI é o foco; automação gráfica depende do ambiente |
+| Windows/macOS | fora do escopo atual |
 
-Veja [`docs/COMPATIBILIDADE.md`](docs/COMPATIBILIDADE.md).
+Essa tabela representa **escopo de compatibilidade**, não certificação em todas as distribuições. Veja [`docs/COMPATIBILIDADE.md`](docs/COMPATIBILIDADE.md).
 
 ## Segurança
 
@@ -92,7 +105,7 @@ Dar ferramentas locais a um LLM exige limites explícitos. Esta versão:
 - não contém chaves de API;
 - não contém IPs, senhas, e-mails privados ou caminhos pessoais;
 - mantém `.env` e bancos locais fora do Git;
-- bloqueia padrões destrutivos no shell;
+- bloqueia padrões destrutivos conhecidos no shell;
 - desativa shell por padrão;
 - limita tamanho e tempo de comandos;
 - recomenda confirmação humana para ações sensíveis;
@@ -106,12 +119,12 @@ Essas proteções **reduzem risco, mas não constituem uma sandbox formal**. Lei
   <img src="assets/demo-terminal.svg" alt="Exemplo conceitual de uso no terminal" width="820">
 </p>
 
-Exemplo:
+O visual acima é uma representação de portfólio. Um fluxo esperado da edição pública é:
 
 ```text
 Você: mostre o uso de memória do computador
 JARVIS: [tool: system_info]
-JARVIS: RAM em uso: 7,2 GB de 16 GB (45%).
+JARVIS: retorna os dados coletados pela ferramenta local
 ```
 
 ## Estrutura
@@ -139,7 +152,11 @@ O projeto também serviu como ambiente de experimentação com desenvolvimento a
 
 ## Limitações conhecidas
 
-Esta edição de portfólio não tenta replicar integralmente o ambiente privado. Integrações que dependem de hardware, desktop environment ou permissões elevadas foram deliberadamente reduzidas ou removidas para tornar o código público mais seguro e reproduzível.
+Esta edição de portfólio não tenta replicar integralmente o ambiente privado. Integrações que dependem de hardware, desktop environment ou permissões elevadas foram deliberadamente reduzidas ou removidas para tornar o código público menor e mais auditável.
+
+## Status
+
+**Protótipo pessoal em evolução.** A edição pública demonstra um subconjunto sanitizado da arquitetura original e ainda exige validação contínua de compatibilidade, testes e CI.
 
 ## Autor
 
