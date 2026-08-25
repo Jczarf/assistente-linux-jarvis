@@ -1,0 +1,16 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.db-journal
+*.db-wal
+*.log
+*.bak
+jarvis_data/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
