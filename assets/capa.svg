@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <radialGradient id="r">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="url(#g)"/>
+  <circle cx="930" cy="210" r="190" fill="url(#r)" opacity=".35"/>
+  <circle cx="930" cy="210" r="108" fill="none" stroke="#38bdf8" stroke-width="2" opacity=".7"/>
+  <circle cx="930" cy="210" r="76" fill="none" stroke="#7dd3fc" stroke-width="1" opacity=".6"/>
+  <path d="M860 210h140M930 140v140" stroke="#38bdf8" stroke-width="2" opacity=".5"/>
+  <text x="72" y="145" fill="#f8fafc" font-family="Arial,Helvetica,sans-serif" font-size="54" font-weight="700">J.A.R.V.I.S.</text>
+  <text x="72" y="205" fill="#7dd3fc" font-family="Arial,Helvetica,sans-serif" font-size="28">Assistente Inteligente para Linux</text>
+  <text x="72" y="260" fill="#cbd5e1" font-family="Arial,Helvetica,sans-serif" font-size="20">LLM · Function Calling · Automação · Segurança · Python</text>
+  <text x="72" y="330" fill="#64748b" font-family="Arial,Helvetica,sans-serif" font-size="16">edição pública sanitizada para portfólio técnico</text>
+</svg>
