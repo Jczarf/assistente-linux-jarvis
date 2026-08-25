@@ -1,0 +1,12 @@
+[project]
+name = "assistente-linux-jarvis"
+version = "1.0.0"
+description = "Edição pública sanitizada de um assistente inteligente para Linux com LLM e function calling."
+requires-python = ">=3.11"
+authors = [{ name = "Júlio Cézar" }]
+readme = "README.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
