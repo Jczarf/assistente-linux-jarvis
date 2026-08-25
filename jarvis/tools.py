@@ -25,29 +25,44 @@ def system_info(_: dict[str, Any] | None = None) -> str:
     )
 
 
-def list_apps(args: dict[str, Any] | None = None) -> str:
-    query = str((args or {}).get("query", "")).strip().lower()
-    roots = [
-        Path.home() / ".local/share/applications",
-        Path("/usr/local/share/applications"),
-        Path("/usr/share/applications"),
-    ]
-    names: set[str] = set()
-    for root in roots:
+def _desktop_roots() -> list[Path]:
+    roots = [Path.home() / ".local/share/applications"]
+    data_dirs = os.getenv("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
+    roots.extend(Path(item) / "applications" for item in data_dirs.split(":") if item)
+    return roots
+
+
+def _desktop_entries() -> dict[str, str]:
+    """Retorna {nome exibido: desktop-id} sem depender de um usuário específico."""
+    entries: dict[str, str] = {}
+    for root in _desktop_roots():
         if not root.exists():
             continue
         for file in root.glob("*.desktop"):
             try:
-                for line in file.read_text(errors="ignore").splitlines():
-                    if line.startswith("Name="):
-                        name = line.partition("=")[2].strip()
-                        if name and (not query or query in name.lower()):
-                            names.add(name)
-                        break
+                lines = file.read_text(errors="ignore").splitlines()
             except OSError:
                 continue
-    result = sorted(names)[:80]
-    return "Aplicativos encontrados: " + ", ".join(result) if result else "Nenhum aplicativo encontrado."
+
+            hidden = any(line.strip().lower() in {"hidden=true", "nodisplay=true"} for line in lines)
+            if hidden:
+                continue
+
+            name = next(
+                (line.partition("=")[2].strip() for line in lines if line.startswith("Name=")),
+                "",
+            )
+            if name:
+                entries.setdefault(name, file.stem)
+    return entries
+
+
+def list_apps(args: dict[str, Any] | None = None) -> str:
+    query = str((args or {}).get("query", "")).strip().lower()
+    names = sorted(
+        name for name in _desktop_entries() if not query or query in name.lower()
+    )[:80]
+    return "Aplicativos encontrados: " + ", ".join(names) if names else "Nenhum aplicativo encontrado."
 
 
 def run_command(args: dict[str, Any]) -> str:
@@ -81,16 +96,35 @@ def open_app(args: dict[str, Any]) -> str:
     app = str(args.get("app", "")).strip()
     if not app:
         return "Nome do aplicativo não informado."
+
+    # 1) Nome de executável, portátil para programas no PATH.
     executable = shutil.which(app)
-    if executable is None:
-        return f"Executável '{app}' não encontrado no PATH."
-    subprocess.Popen(
-        [executable],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
+    if executable:
+        subprocess.Popen(
+            [executable],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return f"Aplicativo '{app}' iniciado."
+
+    # 2) Nome amigável de uma entrada XDG. Evita hardcode de programas instalados.
+    entries = _desktop_entries()
+    match = next(
+        ((name, desktop_id) for name, desktop_id in entries.items() if name.lower() == app.lower()),
+        None,
     )
-    return f"Aplicativo '{app}' iniciado."
+    gtk_launch = shutil.which("gtk-launch")
+    if match and gtk_launch:
+        subprocess.Popen(
+            [gtk_launch, match[1]],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return f"Aplicativo '{match[0]}' iniciado pela entrada XDG."
+
+    return f"Aplicativo '{app}' não encontrado no PATH nem nas entradas XDG disponíveis."
 
 
 def remember(args: dict[str, Any]) -> str:
@@ -121,7 +155,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "list_apps",
-        "description": "Lista aplicações gráficas instaladas através de arquivos .desktop.",
+        "description": "Lista aplicações gráficas instaladas através de entradas XDG .desktop.",
         "parameters": {
             "type": "OBJECT",
             "properties": {"query": {"type": "STRING", "description": "Filtro opcional pelo nome"}},
@@ -129,7 +163,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "open_app",
-        "description": "Abre um executável disponível no PATH. Use somente quando o usuário pedir explicitamente.",
+        "description": "Abre um executável do PATH ou uma aplicação XDG. Use somente quando o usuário pedir explicitamente.",
         "parameters": {
             "type": "OBJECT",
             "properties": {"app": {"type": "STRING"}},
