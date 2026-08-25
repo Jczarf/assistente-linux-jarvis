@@ -1,16 +1,37 @@
+# Segredos e configuração local
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Ambientes Python
 .venv/
 venv/
 __pycache__/
 *.pyc
 *.pyo
+
+# Dados locais do assistente
 *.db
 *.db-journal
 *.db-wal
+*.db-shm
 *.log
 *.bak
 jarvis_data/
+
+# Ferramentas / testes
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / sistema
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
