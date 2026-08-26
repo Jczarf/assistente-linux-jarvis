@@ -1,14 +1,34 @@
 from __future__ import annotations
 
+import getpass
+import html
+import os
 import platform
 import shutil
-import threading
-import tkinter as tk
 from datetime import datetime
-from tkinter import font as tkfont
 from typing import Callable
 
 import psutil
+from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QStackedWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from jarvis.config import settings
 from jarvis.core import JarvisAssistant
@@ -16,16 +36,20 @@ from jarvis.memory import list_facts
 
 
 COLORS = {
-    "bg": "#080d12",
+    "bg": "#070c11",
+    "sidebar": "#0a1118",
     "panel": "#0d141c",
     "panel_alt": "#111a24",
-    "panel_hover": "#182431",
+    "panel_hover": "#17232e",
     "border": "#22303c",
+    "border_soft": "#17232d",
     "text": "#e8eef3",
     "muted": "#8ea0ad",
+    "muted_2": "#647581",
     "green": "#72f25b",
-    "green_dim": "#1f6b2d",
+    "green_soft": "#173c22",
     "cyan": "#62c6ff",
+    "cyan_soft": "#112c3a",
     "warning": "#f3b74a",
     "danger": "#ff6b6b",
 }
@@ -35,24 +59,7 @@ def _fmt_gib(value: float) -> str:
     return f"{value / 1024**3:.1f} GiB"
 
 
-def system_snapshot() -> dict[str, str]:
-    vm = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
-    return {
-        "os": f"{platform.system()} {platform.release()}",
-        "uptime": _format_uptime(),
-        "user": _safe_username(),
-        "hostname": platform.node() or "localhost",
-        "shell": _shell_name(),
-        "cpu": f"{psutil.cpu_percent(interval=None):.0f}%",
-        "memory": f"{_fmt_gib(vm.used)} / {_fmt_gib(vm.total)} ({vm.percent:.0f}%)",
-        "disk": f"{_fmt_gib(disk.used)} / {_fmt_gib(disk.total)} ({disk.percent:.0f}%)",
-    }
-
-
 def _safe_username() -> str:
-    import getpass
-
     try:
         return getpass.getuser()
     except Exception:
@@ -60,10 +67,19 @@ def _safe_username() -> str:
 
 
 def _shell_name() -> str:
-    import os
-
     shell = os.getenv("SHELL", "")
     return shell.rsplit("/", 1)[-1] or "desconhecido"
+
+
+def _desktop_name() -> str:
+    desktop = (
+        os.getenv("XDG_CURRENT_DESKTOP")
+        or os.getenv("DESKTOP_SESSION")
+        or os.getenv("XDG_SESSION_DESKTOP")
+        or "desconhecido"
+    )
+    session = os.getenv("XDG_SESSION_TYPE", "")
+    return f"{desktop} ({session})" if session else desktop
 
 
 def _format_uptime() -> str:
@@ -78,608 +94,919 @@ def _format_uptime() -> str:
     return f"{minutes}min"
 
 
-class RoundedCard(tk.Frame):
-    """Card simples sem dependências gráficas externas."""
+def system_snapshot() -> dict[str, str | int | float]:
+    vm = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    cpu_percent = psutil.cpu_percent(interval=None)
+    return {
+        "os": f"{platform.system()} {platform.release()}",
+        "uptime": _format_uptime(),
+        "user": _safe_username(),
+        "hostname": platform.node() or "localhost",
+        "shell": _shell_name(),
+        "desktop": _desktop_name(),
+        "cpu": f"{cpu_percent:.0f}%",
+        "cpu_percent": cpu_percent,
+        "memory": f"{_fmt_gib(vm.used)} / {_fmt_gib(vm.total)} ({vm.percent:.0f}%)",
+        "memory_percent": vm.percent,
+        "disk": f"{_fmt_gib(disk.used)} / {_fmt_gib(disk.total)} ({disk.percent:.0f}%)",
+        "disk_percent": disk.percent,
+    }
 
-    def __init__(self, master: tk.Misc, **kwargs) -> None:
-        bg = kwargs.pop("bg", COLORS["panel_alt"])
-        super().__init__(
-            master,
-            bg=bg,
-            highlightbackground=COLORS["border"],
-            highlightthickness=1,
-            bd=0,
-            **kwargs,
-        )
+
+def _font_family(preferred: list[str], fallback: str) -> str:
+    families = set(QFontDatabase.families())
+    return next((name for name in preferred if name in families), fallback)
 
 
-class JarvisGUI:
-    def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.root.title(f"{settings.assistant_name} — Assistente para Linux")
-        self.root.geometry("1360x820")
-        self.root.minsize(1040, 680)
-        self.root.configure(bg=COLORS["bg"])
+def _shadow(widget: QWidget, blur: int = 28, y: int = 8) -> None:
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(blur)
+    effect.setOffset(0, y)
+    effect.setColor(Qt.GlobalColor.black)
+    widget.setGraphicsEffect(effect)
+
+
+class Card(QFrame):
+    def __init__(self, parent: QWidget | None = None, *, name: str = "card") -> None:
+        super().__init__(parent)
+        self.setObjectName(name)
+        _shadow(self, 24, 7)
+
+
+class AskWorker(QObject):
+    finished = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, assistant: JarvisAssistant, text: str) -> None:
+        super().__init__()
+        self.assistant = assistant
+        self.text = text
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(self.assistant.ask(self.text))
+        except Exception as exc:  # noqa: BLE001 - fronteira deliberada da UI
+            self.failed.emit(str(exc))
+
+
+class JarvisWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle(f"{settings.assistant_name} — Assistente Inteligente para Linux")
+        self.resize(1480, 900)
+        self.setMinimumSize(1120, 720)
+
+        self.ui_font = _font_family(["Inter", "Noto Sans", "Ubuntu"], "DejaVu Sans")
+        self.mono_font = _font_family(["JetBrains Mono", "Fira Code", "Cascadia Code"], "DejaVu Sans Mono")
 
         self.assistant: JarvisAssistant | None = None
         self.busy = False
-        self.active_page = "Chat"
-        self.nav_buttons: dict[str, tk.Button] = {}
-        self.page_builders: dict[str, Callable[[], None]] = {
-            "Chat": self._build_chat_page,
-            "Ferramentas": self._build_tools_page,
-            "Automação": self._build_automation_page,
-            "Memória": self._build_memory_page,
-            "Sistema": self._build_system_page,
-            "Configurações": self._build_settings_page,
-        }
+        self.nav_buttons: dict[str, QPushButton] = {}
+        self.page_index: dict[str, int] = {}
+        self.system_value_labels: dict[str, QLabel] = {}
+        self.system_progress: dict[str, QProgressBar] = {}
+        self.system_detail_labels: dict[str, QLabel] = {}
+        self.tool_status_labels: dict[str, QLabel] = {}
 
-        self._configure_fonts()
+        self._apply_theme()
         self._build_shell()
-        self._show_page("Chat")
-        self._tick_status()
+        self._build_pages()
+        self._select_page("Chat")
+        self._refresh_status()
 
-    def _configure_fonts(self) -> None:
-        families = set(tkfont.families())
-        self.ui_font = "Inter" if "Inter" in families else "DejaVu Sans"
-        self.mono_font = "JetBrains Mono" if "JetBrains Mono" in families else "DejaVu Sans Mono"
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._refresh_status)
+        self.timer.start(2500)
+
+    def _apply_theme(self) -> None:
+        self.setStyleSheet(
+            f"""
+            QMainWindow, QWidget#root {{
+                background: {COLORS['bg']};
+                color: {COLORS['text']};
+            }}
+            QLabel {{
+                color: {COLORS['text']};
+                background: transparent;
+            }}
+            QFrame#sidebar, QFrame#inspector {{
+                background: {COLORS['sidebar']};
+            }}
+            QFrame#sidebar {{
+                border-right: 1px solid {COLORS['border_soft']};
+            }}
+            QFrame#inspector {{
+                border-left: 1px solid {COLORS['border_soft']};
+            }}
+            QFrame#card, QFrame#terminalCard, QFrame#inputCard, QFrame#metricCard {{
+                background: {COLORS['panel_alt']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 13px;
+            }}
+            QFrame#terminalCard {{
+                background: #080f16;
+            }}
+            QFrame#inputCard {{
+                background: #0a1219;
+            }}
+            QPushButton[nav="true"] {{
+                background: transparent;
+                border: none;
+                border-radius: 10px;
+                color: #a9b8c2;
+                text-align: left;
+                padding: 12px 14px;
+                font-size: 13px;
+            }}
+            QPushButton[nav="true"]:hover {{
+                background: {COLORS['panel_hover']};
+                color: {COLORS['text']};
+            }}
+            QPushButton[nav="true"]:checked {{
+                background: #192530;
+                color: #f4f8fb;
+                border: 1px solid #253543;
+            }}
+            QPushButton#sendButton {{
+                background: {COLORS['green']};
+                color: #07100a;
+                border: none;
+                border-radius: 10px;
+                padding: 10px 16px;
+                font-weight: 700;
+            }}
+            QPushButton#sendButton:hover {{ background: #8bff73; }}
+            QPushButton#sendButton:disabled {{
+                background: #25312b;
+                color: #6f8378;
+            }}
+            QPushButton#ghostButton {{
+                background: #121c25;
+                color: {COLORS['muted']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 9px;
+                padding: 9px 12px;
+            }}
+            QPushButton#ghostButton:hover {{
+                color: {COLORS['text']};
+                border-color: #324756;
+            }}
+            QLineEdit#promptInput {{
+                background: transparent;
+                color: {COLORS['text']};
+                border: none;
+                padding: 12px 8px;
+                selection-background-color: #25583a;
+                font-size: 13px;
+            }}
+            QTextEdit#chatTranscript {{
+                background: transparent;
+                border: none;
+                color: {COLORS['text']};
+                selection-background-color: #245b39;
+                padding: 10px;
+            }}
+            QProgressBar {{
+                background: #0b1218;
+                border: 1px solid #1b2933;
+                border-radius: 4px;
+                height: 7px;
+                text-align: center;
+                color: transparent;
+            }}
+            QProgressBar::chunk {{
+                background: {COLORS['green']};
+                border-radius: 3px;
+            }}
+            QScrollArea {{ border: none; background: transparent; }}
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 8px;
+                margin: 3px 1px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: #253540;
+                border-radius: 4px;
+                min-height: 32px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+            """
+        )
 
     def _build_shell(self) -> None:
-        self.root.grid_columnconfigure(0, weight=0)
-        self.root.grid_columnconfigure(1, weight=1)
-        self.root.grid_columnconfigure(2, weight=0)
-        self.root.grid_rowconfigure(0, weight=1)
+        root = QWidget()
+        root.setObjectName("root")
+        self.setCentralWidget(root)
+        shell = QHBoxLayout(root)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
 
-        self.sidebar = tk.Frame(self.root, bg="#0a1118", width=208)
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_propagate(False)
+        self.sidebar = QFrame()
+        self.sidebar.setObjectName("sidebar")
+        self.sidebar.setFixedWidth(220)
+        shell.addWidget(self.sidebar)
 
-        self.content = tk.Frame(self.root, bg=COLORS["bg"])
-        self.content.grid(row=0, column=1, sticky="nsew", padx=(1, 0))
-        self.content.grid_rowconfigure(0, weight=1)
-        self.content.grid_columnconfigure(0, weight=1)
+        self.stack = QStackedWidget()
+        self.stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        shell.addWidget(self.stack, 1)
 
-        self.inspector = tk.Frame(self.root, bg="#0a1118", width=292)
-        self.inspector.grid(row=0, column=2, sticky="nsew")
-        self.inspector.grid_propagate(False)
+        self.inspector = QFrame()
+        self.inspector.setObjectName("inspector")
+        self.inspector.setFixedWidth(310)
+        shell.addWidget(self.inspector)
 
         self._build_sidebar()
         self._build_inspector()
 
     def _build_sidebar(self) -> None:
-        brand = tk.Frame(self.sidebar, bg="#0a1118")
-        brand.pack(fill="x", padx=18, pady=(20, 22))
+        layout = QVBoxLayout(self.sidebar)
+        layout.setContentsMargins(14, 18, 14, 18)
+        layout.setSpacing(6)
 
-        tk.Label(
-            brand,
-            text=">_",
-            bg="#0a1118",
-            fg=COLORS["cyan"],
-            font=(self.mono_font, 22, "bold"),
-        ).pack(side="left")
-        text = tk.Frame(brand, bg="#0a1118")
-        text.pack(side="left", padx=(10, 0))
-        tk.Label(
-            text,
-            text="J.A.R.V.I.S.",
-            bg="#0a1118",
-            fg=COLORS["green"],
-            font=(self.ui_font, 14, "bold"),
-        ).pack(anchor="w")
-        tk.Label(
-            text,
-            text="Linux Assistant",
-            bg="#0a1118",
-            fg=COLORS["muted"],
-            font=(self.ui_font, 8),
-        ).pack(anchor="w")
+        brand = QHBoxLayout()
+        brand.setSpacing(10)
+        icon = QLabel(">_")
+        icon.setStyleSheet(
+            f"color:{COLORS['cyan']}; font-family:'{self.mono_font}'; font-size:26px; font-weight:800;"
+        )
+        brand.addWidget(icon)
 
-        items = [
+        brand_text = QVBoxLayout()
+        brand_text.setSpacing(0)
+        title = QLabel("J.A.R.V.I.S.")
+        title.setStyleSheet(
+            f"color:{COLORS['green']}; font-family:'{self.ui_font}'; font-size:16px; font-weight:800;"
+        )
+        subtitle = QLabel("LINUX ASSISTANT")
+        subtitle.setStyleSheet(
+            f"color:{COLORS['muted_2']}; font-family:'{self.ui_font}'; font-size:9px; font-weight:700; letter-spacing:1px;"
+        )
+        brand_text.addWidget(title)
+        brand_text.addWidget(subtitle)
+        brand.addLayout(brand_text)
+        brand.addStretch()
+        layout.addLayout(brand)
+        layout.addSpacing(18)
+
+        nav_items = [
             ("Chat", "●"),
             ("Ferramentas", "⌘"),
-            ("Automação", "⚙"),
+            ("Automação", "◫"),
             ("Memória", "◉"),
             ("Sistema", "▣"),
             ("Configurações", "⚙"),
         ]
-        for name, icon in items:
-            button = tk.Button(
-                self.sidebar,
-                text=f"  {icon}   {name}",
-                anchor="w",
-                relief="flat",
-                bd=0,
-                padx=14,
-                pady=11,
-                bg="#0a1118",
-                fg="#b8c6cf",
-                activebackground=COLORS["panel_hover"],
-                activeforeground=COLORS["text"],
-                font=(self.ui_font, 10),
-                cursor="hand2",
-                command=lambda page=name: self._show_page(page),
-            )
-            button.pack(fill="x", padx=10, pady=2)
+        for name, glyph in nav_items:
+            button = QPushButton(f"{glyph}    {name}")
+            button.setProperty("nav", True)
+            button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(lambda _checked=False, page=name: self._select_page(page))
+            layout.addWidget(button)
             self.nav_buttons[name] = button
 
-        spacer = tk.Frame(self.sidebar, bg="#0a1118")
-        spacer.pack(fill="both", expand=True)
+        layout.addStretch(1)
 
-        self.local_status = tk.Label(
-            self.sidebar,
-            text="●  Local: ativo",
-            bg="#0a1118",
-            fg=COLORS["green"],
-            font=(self.ui_font, 9, "bold"),
-            padx=18,
-            pady=16,
-            anchor="w",
+        status_wrap = QFrame()
+        status_layout = QHBoxLayout(status_wrap)
+        status_layout.setContentsMargins(8, 10, 8, 4)
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color:{COLORS['green']}; font-size:12px;")
+        self.local_status = QLabel("Local: ativo")
+        self.local_status.setStyleSheet(
+            f"color:{COLORS['green']}; font-family:'{self.ui_font}'; font-size:11px; font-weight:700;"
         )
-        self.local_status.pack(fill="x")
+        status_layout.addWidget(dot)
+        status_layout.addWidget(self.local_status)
+        status_layout.addStretch()
+        layout.addWidget(status_wrap)
 
     def _build_inspector(self) -> None:
-        title = tk.Label(
-            self.inspector,
-            text="INTERAÇÃO",
-            bg="#0a1118",
-            fg=COLORS["muted"],
-            font=(self.ui_font, 8, "bold"),
-            anchor="w",
-        )
-        title.pack(fill="x", padx=18, pady=(20, 8))
+        scroll = QScrollArea(self.inspector)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        interaction = RoundedCard(self.inspector)
-        interaction.pack(fill="x", padx=14)
-        self._status_row(interaction, "🎙  Voz", "não portada", COLORS["warning"])
-        self._status_row(interaction, "▣  Texto", "ativo", COLORS["green"])
+        host = QWidget()
+        v = QVBoxLayout(host)
+        v.setContentsMargins(14, 18, 14, 22)
+        v.setSpacing(10)
 
-        tk.Label(
-            self.inspector,
-            text="FERRAMENTAS LOCAIS",
-            bg="#0a1118",
-            fg=COLORS["muted"],
-            font=(self.ui_font, 8, "bold"),
-            anchor="w",
-        ).pack(fill="x", padx=18, pady=(18, 8))
+        v.addWidget(self._section_label("INTERAÇÃO"))
+        interaction = Card()
+        iv = QVBoxLayout(interaction)
+        iv.setContentsMargins(14, 11, 14, 11)
+        iv.setSpacing(2)
+        iv.addLayout(self._status_row("🎙  Voz", "não portada", COLORS["warning"]))
+        iv.addLayout(self._status_row("▣  Texto", "ativo", COLORS["green"]))
+        v.addWidget(interaction)
 
-        tools = RoundedCard(self.inspector)
-        tools.pack(fill="x", padx=14)
-        self.tool_rows: dict[str, tk.Label] = {}
-        for label, key in [
-            ("Sistema", "system"),
+        v.addSpacing(5)
+        v.addWidget(self._section_label("FERRAMENTAS LOCAIS"))
+        tools = Card()
+        tv = QVBoxLayout(tools)
+        tv.setContentsMargins(14, 9, 14, 9)
+        tv.setSpacing(1)
+        tool_defs = [
+            ("Terminal / shell", "shell"),
             ("Aplicativos XDG", "apps"),
-            ("Shell", "shell"),
+            ("Informações do sistema", "system"),
             ("Memória local", "memory"),
-        ]:
-            row = tk.Frame(tools, bg=COLORS["panel_alt"])
-            row.pack(fill="x", padx=12, pady=7)
-            tk.Label(
-                row,
-                text=label,
-                bg=COLORS["panel_alt"],
-                fg=COLORS["text"],
-                font=(self.ui_font, 9),
-            ).pack(side="left")
-            status = tk.Label(
-                row,
-                text="pronto",
-                bg=COLORS["panel_alt"],
-                fg=COLORS["green"],
-                font=(self.ui_font, 8, "bold"),
-            )
-            status.pack(side="right")
-            self.tool_rows[key] = status
-
-        tk.Label(
-            self.inspector,
-            text="STATUS DO SISTEMA",
-            bg="#0a1118",
-            fg=COLORS["muted"],
-            font=(self.ui_font, 8, "bold"),
-            anchor="w",
-        ).pack(fill="x", padx=18, pady=(18, 8))
-
-        system_card = RoundedCard(self.inspector)
-        system_card.pack(fill="x", padx=14)
-        self.system_labels: dict[str, tk.Label] = {}
-        for label, key in [("CPU", "cpu"), ("Memória", "memory"), ("Disco /", "disk")]:
-            row = tk.Frame(system_card, bg=COLORS["panel_alt"])
-            row.pack(fill="x", padx=12, pady=8)
-            tk.Label(
-                row,
-                text=label,
-                bg=COLORS["panel_alt"],
-                fg=COLORS["muted"],
-                font=(self.ui_font, 8),
-            ).pack(anchor="w")
-            value = tk.Label(
-                row,
-                text="—",
-                bg=COLORS["panel_alt"],
-                fg=COLORS["green"],
-                font=(self.mono_font, 9, "bold"),
-                anchor="w",
-            )
-            value.pack(fill="x", pady=(2, 0))
-            self.system_labels[key] = value
-
-        tk.Label(
-            self.inspector,
-            text="MEMÓRIA",
-            bg="#0a1118",
-            fg=COLORS["muted"],
-            font=(self.ui_font, 8, "bold"),
-            anchor="w",
-        ).pack(fill="x", padx=18, pady=(18, 8))
-
-        memory_card = RoundedCard(self.inspector)
-        memory_card.pack(fill="x", padx=14)
-        self.memory_summary = tk.Label(
-            memory_card,
-            text="Persistência desativada",
-            bg=COLORS["panel_alt"],
-            fg=COLORS["muted"],
-            font=(self.ui_font, 9),
-            justify="left",
-            anchor="w",
-            padx=12,
-            pady=12,
-        )
-        self.memory_summary.pack(fill="x")
-
-    def _status_row(self, parent: tk.Misc, label: str, status: str, color: str) -> None:
-        row = tk.Frame(parent, bg=COLORS["panel_alt"])
-        row.pack(fill="x", padx=12, pady=8)
-        tk.Label(
-            row, text=label, bg=COLORS["panel_alt"], fg=COLORS["text"], font=(self.ui_font, 9)
-        ).pack(side="left")
-        tk.Label(
-            row, text=status, bg=COLORS["panel_alt"], fg=color, font=(self.ui_font, 8, "bold")
-        ).pack(side="right")
-
-    def _show_page(self, page: str) -> None:
-        self.active_page = page
-        for name, button in self.nav_buttons.items():
-            if name == page:
-                button.configure(bg=COLORS["panel_hover"], fg=COLORS["text"])
-            else:
-                button.configure(bg="#0a1118", fg="#b8c6cf")
-
-        for child in self.content.winfo_children():
-            child.destroy()
-
-        self.page_builders[page]()
-
-    def _page_header(self, title: str, subtitle: str) -> tk.Frame:
-        wrapper = tk.Frame(self.content, bg=COLORS["bg"])
-        wrapper.grid(row=0, column=0, sticky="nsew", padx=26, pady=22)
-        wrapper.grid_columnconfigure(0, weight=1)
-        wrapper.grid_rowconfigure(1, weight=1)
-
-        head = tk.Frame(wrapper, bg=COLORS["bg"])
-        head.grid(row=0, column=0, sticky="ew", pady=(0, 14))
-        tk.Label(
-            head,
-            text=title,
-            bg=COLORS["bg"],
-            fg=COLORS["text"],
-            font=(self.ui_font, 18, "bold"),
-        ).pack(anchor="w")
-        tk.Label(
-            head,
-            text=subtitle,
-            bg=COLORS["bg"],
-            fg=COLORS["muted"],
-            font=(self.ui_font, 9),
-        ).pack(anchor="w", pady=(4, 0))
-        return wrapper
-
-    def _build_chat_page(self) -> None:
-        wrapper = self._page_header(
-            "J.A.R.V.I.S.",
-            "Assistente local para Linux · texto + function calling",
-        )
-
-        chat_card = RoundedCard(wrapper, bg="#0a1118")
-        chat_card.grid(row=1, column=0, sticky="nsew")
-        chat_card.grid_columnconfigure(0, weight=1)
-        chat_card.grid_rowconfigure(0, weight=1)
-
-        self.chat = tk.Text(
-            chat_card,
-            bg="#0a1118",
-            fg=COLORS["text"],
-            insertbackground=COLORS["green"],
-            relief="flat",
-            bd=0,
-            wrap="word",
-            padx=20,
-            pady=18,
-            font=(self.mono_font, 10),
-            selectbackground="#214f36",
-        )
-        self.chat.grid(row=0, column=0, sticky="nsew")
-        scroll = tk.Scrollbar(chat_card, command=self.chat.yview, bg=COLORS["panel_alt"])
-        scroll.grid(row=0, column=1, sticky="ns")
-        self.chat.configure(yscrollcommand=scroll.set)
-
-        self.chat.tag_configure("jarvis", foreground=COLORS["green"], font=(self.mono_font, 10, "bold"))
-        self.chat.tag_configure("user", foreground=COLORS["cyan"], font=(self.mono_font, 10, "bold"))
-        self.chat.tag_configure("muted", foreground=COLORS["muted"])
-        self.chat.tag_configure("error", foreground=COLORS["danger"])
-        self.chat.insert("end", "J.A.R.V.I.S. carregado e pronto.\n", "jarvis")
-        self.chat.insert("end", "Como posso ajudar você hoje?\n\n", "muted")
-        self.chat.configure(state="disabled")
-
-        composer = tk.Frame(chat_card, bg=COLORS["panel_alt"], padx=12, pady=10)
-        composer.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=12)
-        composer.grid_columnconfigure(0, weight=1)
-
-        self.entry = tk.Entry(
-            composer,
-            bg=COLORS["panel_alt"],
-            fg=COLORS["text"],
-            insertbackground=COLORS["green"],
-            relief="flat",
-            bd=0,
-            font=(self.ui_font, 10),
-        )
-        self.entry.grid(row=0, column=0, sticky="ew", padx=(4, 10), ipady=8)
-        self.entry.bind("<Return>", lambda _event: self._submit())
-
-        self.send_button = tk.Button(
-            composer,
-            text="Enviar  ➜",
-            command=self._submit,
-            bg=COLORS["green"],
-            fg="#071008",
-            activebackground="#8bff78",
-            activeforeground="#071008",
-            relief="flat",
-            bd=0,
-            padx=16,
-            pady=8,
-            font=(self.ui_font, 9, "bold"),
-            cursor="hand2",
-        )
-        self.send_button.grid(row=0, column=1)
-
-        self.entry.focus_set()
-
-    def _append_chat(self, who: str, text: str, tag: str) -> None:
-        if not hasattr(self, "chat") or not self.chat.winfo_exists():
-            return
-        self.chat.configure(state="normal")
-        self.chat.insert("end", f"{who}\n", tag)
-        self.chat.insert("end", f"{text.strip()}\n\n")
-        self.chat.configure(state="disabled")
-        self.chat.see("end")
-
-    def _submit(self) -> None:
-        if self.busy or not hasattr(self, "entry"):
-            return
-        text = self.entry.get().strip()
-        if not text:
-            return
-        self.entry.delete(0, "end")
-        self._append_chat("Você:", text, "user")
-        self.busy = True
-        self.send_button.configure(state="disabled", text="Processando…")
-
-        thread = threading.Thread(target=self._ask_worker, args=(text,), daemon=True)
-        thread.start()
-
-    def _ask_worker(self, text: str) -> None:
-        try:
-            if self.assistant is None:
-                self.assistant = JarvisAssistant()
-            answer = self.assistant.ask(text)
-            self.root.after(0, lambda: self._finish_answer(answer, None))
-        except Exception as exc:
-            self.root.after(0, lambda: self._finish_answer("", exc))
-
-    def _finish_answer(self, answer: str, error: Exception | None) -> None:
-        self.busy = False
-        if hasattr(self, "send_button") and self.send_button.winfo_exists():
-            self.send_button.configure(state="normal", text="Enviar  ➜")
-        if error is not None:
-            self._append_chat(
-                "Erro:",
-                f"{error}\nConfigure GEMINI_API_KEY em .env para usar o chat.",
-                "error",
-            )
-        else:
-            self._append_chat(f"{settings.assistant_name}:", answer, "jarvis")
-
-    def _build_tools_page(self) -> None:
-        wrapper = self._page_header("Ferramentas", "Capacidades locais disponíveis nesta edição pública")
-        body = tk.Frame(wrapper, bg=COLORS["bg"])
-        body.grid(row=1, column=0, sticky="nsew")
-        body.grid_columnconfigure((0, 1), weight=1)
-
-        items = [
-            ("Informações do sistema", "CPU, RAM, disco e sistema operacional.", True),
-            ("Aplicativos XDG", "Descoberta e abertura de aplicativos instalados.", True),
-            ("Shell", "Execução genérica com política básica de segurança.", settings.allow_shell),
-            ("Memória local", "Persistência SQLite opcional.", settings.memory_enabled),
         ]
-        for index, (name, desc, enabled) in enumerate(items):
-            card = RoundedCard(body)
-            card.grid(row=index // 2, column=index % 2, sticky="nsew", padx=7, pady=7)
-            tk.Label(
-                card,
-                text=name,
-                bg=COLORS["panel_alt"],
-                fg=COLORS["text"],
-                font=(self.ui_font, 11, "bold"),
-            ).pack(anchor="w", padx=16, pady=(15, 5))
-            tk.Label(
-                card,
-                text=desc,
-                bg=COLORS["panel_alt"],
-                fg=COLORS["muted"],
-                wraplength=320,
-                justify="left",
-                font=(self.ui_font, 9),
-            ).pack(anchor="w", padx=16)
-            tk.Label(
-                card,
-                text="● habilitado" if enabled else "● desativado por padrão",
-                bg=COLORS["panel_alt"],
-                fg=COLORS["green"] if enabled else COLORS["warning"],
-                font=(self.ui_font, 8, "bold"),
-            ).pack(anchor="w", padx=16, pady=(10, 15))
+        for label, key in tool_defs:
+            row = QHBoxLayout()
+            left = QLabel(label)
+            left.setStyleSheet(f"color:{COLORS['text']}; font-size:11px;")
+            status = QLabel("Pronto")
+            status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            status.setStyleSheet(f"color:{COLORS['green']}; font-size:10px; font-weight:700;")
+            row.addWidget(left)
+            row.addStretch()
+            row.addWidget(status)
+            tv.addLayout(row)
+            tv.addSpacing(7)
+            self.tool_status_labels[key] = status
+        v.addWidget(tools)
 
-    def _build_automation_page(self) -> None:
-        wrapper = self._page_header("Automação", "Área reservada para recursos ainda não portados")
-        card = RoundedCard(wrapper)
-        card.grid(row=1, column=0, sticky="new")
-        tk.Label(
-            card,
-            text="Automação avançada ainda não faz parte da edição pública.",
-            bg=COLORS["panel_alt"],
-            fg=COLORS["text"],
-            font=(self.ui_font, 12, "bold"),
-        ).pack(anchor="w", padx=18, pady=(18, 8))
-        tk.Label(
-            card,
-            text=(
-                "O protótipo privado experimentou rotinas de desktop, navegador e voz. "
-                "Esses módulos permanecem fora desta versão até serem sanitizados, revisados e testados."
-            ),
-            bg=COLORS["panel_alt"],
-            fg=COLORS["muted"],
-            wraplength=720,
-            justify="left",
-            font=(self.ui_font, 9),
-        ).pack(anchor="w", padx=18, pady=(0, 18))
+        v.addSpacing(5)
+        v.addWidget(self._section_label("STATUS DO SISTEMA"))
+        system = Card()
+        sv = QVBoxLayout(system)
+        sv.setContentsMargins(14, 12, 14, 12)
+        sv.setSpacing(12)
+        for title, key in [("CPU", "cpu"), ("Memória", "memory"), ("Disco /", "disk")]:
+            top = QHBoxLayout()
+            label = QLabel(title)
+            label.setStyleSheet(f"color:{COLORS['muted']}; font-size:10px;")
+            value = QLabel("—")
+            value.setStyleSheet(
+                f"color:{COLORS['green']}; font-family:'{self.mono_font}'; font-size:10px; font-weight:700;"
+            )
+            value.setAlignment(Qt.AlignmentFlag.AlignRight)
+            top.addWidget(label)
+            top.addStretch()
+            top.addWidget(value)
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setTextVisible(False)
+            sv.addLayout(top)
+            sv.addWidget(bar)
+            self.system_value_labels[key] = value
+            self.system_progress[key] = bar
+        v.addWidget(system)
 
-    def _build_memory_page(self) -> None:
-        wrapper = self._page_header("Memória", "Informações persistentes armazenadas localmente")
-        card = RoundedCard(wrapper)
-        card.grid(row=1, column=0, sticky="nsew")
-        if not settings.memory_enabled:
-            text = "Memória persistente está desativada por padrão.\nDefina JARVIS_MEMORY_ENABLED=true para habilitar."
-        else:
-            facts = list_facts()
-            text = "\n".join(f"• {key}: {value}" for key, value in facts.items()) or "Nenhum fato salvo."
-        tk.Label(
-            card,
-            text=text,
-            bg=COLORS["panel_alt"],
-            fg=COLORS["text"],
-            justify="left",
-            anchor="nw",
-            font=(self.mono_font, 9),
-            padx=18,
-            pady=18,
-        ).pack(fill="both", expand=True)
+        v.addSpacing(5)
+        v.addWidget(self._section_label("MEMÓRIA"))
+        memory = Card()
+        mv = QVBoxLayout(memory)
+        mv.setContentsMargins(14, 12, 14, 12)
+        self.memory_summary = QLabel("Carregando…")
+        self.memory_summary.setWordWrap(True)
+        self.memory_summary.setStyleSheet(f"color:{COLORS['muted']}; font-size:11px; line-height:1.3;")
+        mv.addWidget(self.memory_summary)
+        manage_memory = QPushButton("Gerenciar memória")
+        manage_memory.setObjectName("ghostButton")
+        manage_memory.clicked.connect(lambda: self._select_page("Memória"))
+        mv.addWidget(manage_memory)
+        v.addWidget(memory)
 
-    def _build_system_page(self) -> None:
-        wrapper = self._page_header("Sistema", "Resumo local em tempo real")
-        card = RoundedCard(wrapper)
-        card.grid(row=1, column=0, sticky="new")
+        v.addSpacing(5)
+        v.addWidget(self._section_label("AUTOMAÇÃO"))
+        automation = Card()
+        av = QVBoxLayout(automation)
+        av.setContentsMargins(14, 12, 14, 12)
+        caption = QLabel("Próximas tarefas")
+        caption.setStyleSheet(f"color:{COLORS['muted']}; font-size:10px; font-weight:700;")
+        av.addWidget(caption)
+        placeholder = QLabel("Nenhuma automação pública configurada")
+        placeholder.setWordWrap(True)
+        placeholder.setStyleSheet(f"color:{COLORS['text']}; font-size:11px;")
+        av.addWidget(placeholder)
+        open_auto = QPushButton("Ver automação")
+        open_auto.setObjectName("ghostButton")
+        open_auto.clicked.connect(lambda: self._select_page("Automação"))
+        av.addWidget(open_auto)
+        v.addWidget(automation)
+
+        v.addStretch(1)
+        scroll.setWidget(host)
+
+        inspector_layout = QVBoxLayout(self.inspector)
+        inspector_layout.setContentsMargins(0, 0, 0, 0)
+        inspector_layout.addWidget(scroll)
+
+    def _section_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet(
+            f"color:{COLORS['muted_2']}; font-family:'{self.ui_font}'; font-size:9px; font-weight:800; letter-spacing:1px;"
+        )
+        return label
+
+    def _status_row(self, left_text: str, right_text: str, color: str) -> QHBoxLayout:
+        row = QHBoxLayout()
+        left = QLabel(left_text)
+        left.setStyleSheet(f"color:{COLORS['text']}; font-size:11px;")
+        right = QLabel(right_text)
+        right.setStyleSheet(f"color:{color}; font-size:10px; font-weight:700;")
+        row.addWidget(left)
+        row.addStretch()
+        row.addWidget(right)
+        return row
+
+    def _build_pages(self) -> None:
+        builders: list[tuple[str, Callable[[], QWidget]]] = [
+            ("Chat", self._chat_page),
+            ("Ferramentas", self._tools_page),
+            ("Automação", self._automation_page),
+            ("Memória", self._memory_page),
+            ("Sistema", self._system_page),
+            ("Configurações", self._settings_page),
+        ]
+        for name, builder in builders:
+            self.page_index[name] = self.stack.addWidget(builder())
+
+    def _page_host(self, title: str, subtitle: str) -> tuple[QWidget, QVBoxLayout]:
+        host = QWidget()
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(26, 22, 26, 22)
+        layout.setSpacing(14)
+
+        head = QHBoxLayout()
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        title_label = QLabel(title)
+        title_label.setStyleSheet(
+            f"font-family:'{self.ui_font}'; font-size:21px; font-weight:800; color:{COLORS['text']};"
+        )
+        sub = QLabel(subtitle)
+        sub.setStyleSheet(f"font-family:'{self.ui_font}'; font-size:11px; color:{COLORS['muted']};")
+        text.addWidget(title_label)
+        text.addWidget(sub)
+        head.addLayout(text)
+        head.addStretch()
+        status = QLabel("●  LOCAL · ATIVO")
+        status.setStyleSheet(
+            f"background:{COLORS['green_soft']}; color:{COLORS['green']}; border:1px solid #255b31; border-radius:10px; padding:6px 10px; font-size:9px; font-weight:800;"
+        )
+        head.addWidget(status)
+        layout.addLayout(head)
+        return host, layout
+
+    def _chat_page(self) -> QWidget:
+        host, layout = self._page_host(
+            "J.A.R.V.I.S.",
+            "Assistente local para Linux · LLM + function calling + ferramentas locais",
+        )
+
+        terminal = Card(name="terminalCard")
+        terminal_layout = QVBoxLayout(terminal)
+        terminal_layout.setContentsMargins(16, 14, 16, 12)
+        terminal_layout.setSpacing(6)
+
+        terminal_head = QHBoxLayout()
+        label = QLabel("J.A.R.V.I.S.")
+        label.setStyleSheet(
+            f"color:{COLORS['green']}; font-family:'{self.mono_font}'; font-size:12px; font-weight:800;"
+        )
+        self.clock_label = QLabel("")
+        self.clock_label.setStyleSheet(f"color:{COLORS['muted_2']}; font-size:10px;")
+        terminal_head.addWidget(label)
+        terminal_head.addStretch()
+        terminal_head.addWidget(self.clock_label)
+        terminal_layout.addLayout(terminal_head)
+
+        self.chat = QTextEdit()
+        self.chat.setObjectName("chatTranscript")
+        self.chat.setReadOnly(True)
+        self.chat.setFont(QFont(self.mono_font, 10))
+        terminal_layout.addWidget(self.chat, 1)
+
+        layout.addWidget(terminal, 1)
+
+        input_card = QFrame()
+        input_card.setObjectName("inputCard")
+        input_layout = QHBoxLayout(input_card)
+        input_layout.setContentsMargins(10, 5, 7, 5)
+        input_layout.setSpacing(6)
+        prompt_symbol = QLabel("›")
+        prompt_symbol.setStyleSheet(
+            f"color:{COLORS['green']}; font-family:'{self.mono_font}'; font-size:22px; font-weight:800;"
+        )
+        self.prompt = QLineEdit()
+        self.prompt.setObjectName("promptInput")
+        self.prompt.setPlaceholderText("Mensagem para J.A.R.V.I.S…")
+        self.prompt.returnPressed.connect(self._send_message)
+        mic = QPushButton("🎙")
+        mic.setObjectName("ghostButton")
+        mic.setToolTip("Voz ainda não portada para a edição pública")
+        mic.setEnabled(False)
+        self.send_button = QPushButton("Enviar")
+        self.send_button.setObjectName("sendButton")
+        self.send_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.send_button.clicked.connect(self._send_message)
+        input_layout.addWidget(prompt_symbol)
+        input_layout.addWidget(self.prompt, 1)
+        input_layout.addWidget(mic)
+        input_layout.addWidget(self.send_button)
+        layout.addWidget(input_card)
+
+        self._seed_chat()
+        return host
+
+    def _seed_chat(self) -> None:
         snap = system_snapshot()
-        for label, key in [
-            ("Sistema operacional", "os"),
-            ("Uptime", "uptime"),
-            ("Usuário", "user"),
-            ("Hostname", "hostname"),
-            ("Shell", "shell"),
-            ("CPU", "cpu"),
-            ("Memória", "memory"),
-            ("Disco /", "disk"),
-        ]:
-            row = tk.Frame(card, bg=COLORS["panel_alt"])
-            row.pack(fill="x", padx=18, pady=8)
-            tk.Label(
-                row,
-                text=label,
-                width=20,
-                anchor="w",
-                bg=COLORS["panel_alt"],
-                fg=COLORS["muted"],
-                font=(self.ui_font, 9),
-            ).pack(side="left")
-            tk.Label(
-                row,
-                text=snap[key],
-                anchor="w",
-                bg=COLORS["panel_alt"],
-                fg=COLORS["text"],
-                font=(self.mono_font, 9),
-            ).pack(side="left", fill="x", expand=True)
+        self.chat.setHtml(
+            f"""
+            <div style="font-family:'{self.mono_font}'; font-size:10.5pt; color:{COLORS['text']}; line-height:1.45;">
+              <span style="color:{COLORS['green']}; font-weight:700;">J.A.R.V.I.S. carregado e pronto.</span><br>
+              <span style="color:{COLORS['text']};">Como posso ajudar você hoje?</span><br><br>
+              <span style="color:{COLORS['muted']};">&gt; STATUS DO SISTEMA</span><br>
+              <div style="margin-top:5px; margin-bottom:8px; padding:10px; background:#0c151d; border:1px solid #22303c; border-radius:8px;">
+                <span style="color:{COLORS['green']};">SO:</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{html.escape(str(snap['os']))}<br>
+                <span style="color:{COLORS['green']};">Uptime:</span>&nbsp;&nbsp;&nbsp;{html.escape(str(snap['uptime']))}<br>
+                <span style="color:{COLORS['green']};">Usuário:</span>&nbsp;&nbsp;{html.escape(str(snap['user']))}<br>
+                <span style="color:{COLORS['green']};">Hostname:</span>&nbsp;{html.escape(str(snap['hostname']))}<br>
+                <span style="color:{COLORS['green']};">Shell:</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{html.escape(str(snap['shell']))}<br>
+                <span style="color:{COLORS['green']};">Desktop:</span>&nbsp;&nbsp;&nbsp;{html.escape(str(snap['desktop']))}
+              </div>
+              <span style="color:{COLORS['muted']};">&gt; USO DE RECURSOS</span><br>
+              <span style="color:{COLORS['green']};">CPU:</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{html.escape(str(snap['cpu']))}<br>
+              <span style="color:{COLORS['green']};">Memória:</span>&nbsp;{html.escape(str(snap['memory']))}<br>
+              <span style="color:{COLORS['green']};">Disco:</span>&nbsp;&nbsp;&nbsp;{html.escape(str(snap['disk']))}<br><br>
+              <span style="color:{COLORS['muted']};">Digite uma solicitação abaixo. Ações locais passam pelo dispatcher e pelas políticas da edição pública.</span>
+            </div>
+            """
+        )
+        self.chat.moveCursor(self.chat.textCursor().MoveOperation.End)
 
-    def _build_settings_page(self) -> None:
-        wrapper = self._page_header("Configurações", "Estado efetivo das opções locais")
-        card = RoundedCard(wrapper)
-        card.grid(row=1, column=0, sticky="new")
+    def _tools_page(self) -> QWidget:
+        host, layout = self._page_host(
+            "Ferramentas",
+            "Capacidades locais expostas ao modelo por function calling",
+        )
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
+        items = [
+            ("▣", "Informações do sistema", "CPU, RAM, disco e sistema operacional", "Ativo"),
+            ("⌘", "Aplicativos XDG", "Descobre e abre aplicativos de forma portátil", "Ativo"),
+            (">_", "Shell", "Execução opt-in com timeout e política de bloqueio", "Opt-in"),
+            ("◉", "Memória local", "Persistência SQLite opcional e local", "Opt-in"),
+        ]
+        for i, (glyph, title, description, status) in enumerate(items):
+            card = Card()
+            cv = QVBoxLayout(card)
+            cv.setContentsMargins(18, 17, 18, 17)
+            icon = QLabel(glyph)
+            icon.setStyleSheet(
+                f"color:{COLORS['green']}; font-family:'{self.mono_font}'; font-size:24px; font-weight:800;"
+            )
+            t = QLabel(title)
+            t.setStyleSheet(f"font-size:14px; font-weight:800; color:{COLORS['text']};")
+            d = QLabel(description)
+            d.setWordWrap(True)
+            d.setStyleSheet(f"font-size:11px; color:{COLORS['muted']};")
+            s = QLabel(status)
+            status_color = COLORS["green"] if status == "Ativo" else COLORS["warning"]
+            s.setStyleSheet(f"color:{status_color}; font-size:10px; font-weight:800;")
+            cv.addWidget(icon)
+            cv.addSpacing(4)
+            cv.addWidget(t)
+            cv.addWidget(d)
+            cv.addSpacing(8)
+            cv.addWidget(s)
+            grid.addWidget(card, i // 2, i % 2)
+        layout.addLayout(grid)
+        layout.addStretch(1)
+        return host
+
+    def _automation_page(self) -> QWidget:
+        host, layout = self._page_host(
+            "Automação",
+            "Área reservada para rotinas e tarefas locais controladas",
+        )
+        card = Card()
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(22, 22, 22, 22)
+        icon = QLabel("◫")
+        icon.setStyleSheet(f"font-size:32px; color:{COLORS['green']}; font-weight:800;")
+        title = QLabel("Automação avançada ainda não foi portada")
+        title.setStyleSheet(f"font-size:16px; font-weight:800; color:{COLORS['text']};")
+        text = QLabel(
+            "O protótipo privado possuía experimentos de automação mais amplos. Nesta edição pública, "
+            "a interface preserva a área visual do mockup sem fingir que um agendador completo já existe."
+        )
+        text.setWordWrap(True)
+        text.setStyleSheet(f"font-size:12px; color:{COLORS['muted']};")
+        cv.addWidget(icon)
+        cv.addWidget(title)
+        cv.addWidget(text)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return host
+
+    def _memory_page(self) -> QWidget:
+        host, layout = self._page_host(
+            "Memória",
+            "Fatos persistentes armazenados localmente quando o recurso está habilitado",
+        )
+        self.memory_page_card = Card()
+        self.memory_page_layout = QVBoxLayout(self.memory_page_card)
+        self.memory_page_layout.setContentsMargins(20, 18, 20, 18)
+        layout.addWidget(self.memory_page_card)
+        layout.addStretch(1)
+        self._render_memory_page()
+        return host
+
+    def _render_memory_page(self) -> None:
+        if not hasattr(self, "memory_page_layout"):
+            return
+        while self.memory_page_layout.count():
+            item = self.memory_page_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        if not settings.memory_enabled:
+            title = QLabel("Memória persistente desativada")
+            title.setStyleSheet(f"font-size:15px; font-weight:800; color:{COLORS['warning']};")
+            body = QLabel(
+                "Ative JARVIS_MEMORY_ENABLED=true no arquivo .env para permitir persistência local. "
+                "O recurso permanece desligado por padrão."
+            )
+            body.setWordWrap(True)
+            body.setStyleSheet(f"color:{COLORS['muted']}; font-size:12px;")
+            self.memory_page_layout.addWidget(title)
+            self.memory_page_layout.addWidget(body)
+            return
+
+        facts = list_facts()
+        title = QLabel(f"{len(facts)} fato(s) armazenado(s)")
+        title.setStyleSheet(f"font-size:15px; font-weight:800; color:{COLORS['green']};")
+        self.memory_page_layout.addWidget(title)
+        if not facts:
+            empty = QLabel("Nenhuma informação persistente disponível.")
+            empty.setStyleSheet(f"color:{COLORS['muted']}; font-size:12px;")
+            self.memory_page_layout.addWidget(empty)
+            return
+        for key, value in sorted(facts.items()):
+            row = QFrame()
+            row.setStyleSheet(
+                f"background:#0c151d; border:1px solid {COLORS['border_soft']}; border-radius:9px;"
+            )
+            rv = QVBoxLayout(row)
+            rv.setContentsMargins(12, 9, 12, 9)
+            k = QLabel(str(key))
+            k.setStyleSheet(f"color:{COLORS['green']}; font-size:10px; font-weight:800;")
+            val = QLabel(str(value))
+            val.setWordWrap(True)
+            val.setStyleSheet(f"color:{COLORS['text']}; font-size:11px;")
+            rv.addWidget(k)
+            rv.addWidget(val)
+            self.memory_page_layout.addWidget(row)
+
+    def _system_page(self) -> QWidget:
+        host, layout = self._page_host(
+            "Sistema",
+            "Visão local de hardware, sessão e uso de recursos",
+        )
+        top_grid = QGridLayout()
+        top_grid.setHorizontalSpacing(12)
+        top_grid.setVerticalSpacing(12)
+        for i, (label, key) in enumerate(
+            [("Sistema operacional", "os"), ("Uptime", "uptime"), ("Usuário", "user"), ("Hostname", "hostname"), ("Shell", "shell"), ("Desktop", "desktop")]
+        ):
+            card = Card(name="metricCard")
+            cv = QVBoxLayout(card)
+            cv.setContentsMargins(16, 13, 16, 13)
+            l = QLabel(label.upper())
+            l.setStyleSheet(f"color:{COLORS['muted_2']}; font-size:9px; font-weight:800;")
+            value = QLabel("—")
+            value.setWordWrap(True)
+            value.setStyleSheet(
+                f"color:{COLORS['text']}; font-family:'{self.mono_font}'; font-size:12px; font-weight:700;"
+            )
+            cv.addWidget(l)
+            cv.addWidget(value)
+            self.system_detail_labels[key] = value
+            top_grid.addWidget(card, i // 3, i % 3)
+        layout.addLayout(top_grid)
+
+        resource = Card()
+        rv = QVBoxLayout(resource)
+        rv.setContentsMargins(18, 17, 18, 17)
+        resource_title = QLabel("USO DE RECURSOS")
+        resource_title.setStyleSheet(f"color:{COLORS['muted_2']}; font-size:9px; font-weight:800;")
+        rv.addWidget(resource_title)
+        self.system_page_resource: dict[str, tuple[QLabel, QProgressBar]] = {}
+        for title, key in [("CPU", "cpu"), ("Memória", "memory"), ("Disco /", "disk")]:
+            row = QHBoxLayout()
+            l = QLabel(title)
+            l.setStyleSheet(f"color:{COLORS['text']}; font-size:11px; font-weight:700;")
+            value = QLabel("—")
+            value.setStyleSheet(f"color:{COLORS['green']}; font-family:'{self.mono_font}'; font-size:10px;")
+            row.addWidget(l)
+            row.addStretch()
+            row.addWidget(value)
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setTextVisible(False)
+            rv.addSpacing(6)
+            rv.addLayout(row)
+            rv.addWidget(bar)
+            self.system_page_resource[key] = (value, bar)
+        layout.addWidget(resource)
+        layout.addStretch(1)
+        return host
+
+    def _settings_page(self) -> QWidget:
+        host, layout = self._page_host(
+            "Configurações",
+            "Resumo das opções da edição pública — segredos nunca são exibidos",
+        )
+        card = Card()
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(20, 18, 20, 18)
+        cv.setSpacing(12)
         rows = [
             ("Modelo", settings.model),
-            ("Nome", settings.assistant_name),
-            ("API Gemini", "configurada" if bool(settings.api_key) else "não configurada"),
-            ("Memória", "habilitada" if settings.memory_enabled else "desativada"),
-            ("Shell", "habilitado" if settings.allow_shell else "desativado"),
-            ("Timeout shell", f"{settings.shell_timeout}s"),
+            ("Nome do assistente", settings.assistant_name),
+            ("Memória persistente", "habilitada" if settings.memory_enabled else "desativada"),
+            ("Shell genérico", "habilitado" if settings.allow_shell else "desativado"),
+            ("Timeout do shell", f"{settings.shell_timeout}s"),
+            ("Diretório de dados", str(settings.data_dir)),
+            ("GEMINI_API_KEY", "configurada" if bool(settings.api_key) else "não configurada"),
         ]
         for label, value in rows:
-            row = tk.Frame(card, bg=COLORS["panel_alt"])
-            row.pack(fill="x", padx=18, pady=8)
-            tk.Label(
-                row,
-                text=label,
-                bg=COLORS["panel_alt"],
-                fg=COLORS["muted"],
-                width=18,
-                anchor="w",
-                font=(self.ui_font, 9),
-            ).pack(side="left")
-            tk.Label(
-                row,
-                text=value,
-                bg=COLORS["panel_alt"],
-                fg=COLORS["text"],
-                anchor="w",
-                font=(self.mono_font, 9),
-            ).pack(side="left")
+            row = QHBoxLayout()
+            l = QLabel(label)
+            l.setStyleSheet(f"color:{COLORS['muted']}; font-size:11px;")
+            val = QLabel(value)
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            val.setStyleSheet(
+                f"color:{COLORS['text']}; font-family:'{self.mono_font}'; font-size:10px; font-weight:700;"
+            )
+            row.addWidget(l)
+            row.addStretch()
+            row.addWidget(val)
+            cv.addLayout(row)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return host
 
-    def _tick_status(self) -> None:
+    def _select_page(self, page: str) -> None:
+        index = self.page_index.get(page)
+        if index is None:
+            return
+        self.stack.setCurrentIndex(index)
+        for name, button in self.nav_buttons.items():
+            button.setChecked(name == page)
+        if page == "Memória":
+            self._render_memory_page()
+        if page == "Sistema":
+            self._refresh_status()
+
+    def _ensure_assistant(self) -> JarvisAssistant:
+        if self.assistant is None:
+            self.assistant = JarvisAssistant()
+        return self.assistant
+
+    @Slot()
+    def _send_message(self) -> None:
+        if self.busy:
+            return
+        text = self.prompt.text().strip()
+        if not text:
+            return
+
+        self.prompt.clear()
+        self._append_user(text)
+        self.busy = True
+        self.send_button.setEnabled(False)
+        self.send_button.setText("Pensando…")
+        self.prompt.setEnabled(False)
+
         try:
-            snap = system_snapshot()
-            for key in ("cpu", "memory", "disk"):
-                label = self.system_labels.get(key)
-                if label and label.winfo_exists():
-                    label.configure(text=snap[key])
+            assistant = self._ensure_assistant()
+        except Exception as exc:  # noqa: BLE001
+            self._append_error(str(exc))
+            self._set_idle()
+            return
 
-            self.tool_rows["shell"].configure(
-                text="ativo" if settings.allow_shell else "desativado",
-                fg=COLORS["green"] if settings.allow_shell else COLORS["warning"],
-            )
-            self.tool_rows["memory"].configure(
-                text="ativo" if settings.memory_enabled else "desativado",
-                fg=COLORS["green"] if settings.memory_enabled else COLORS["warning"],
-            )
-            self.tool_rows["apps"].configure(
-                text="pronto" if shutil.which("gtk-launch") else "parcial",
-                fg=COLORS["green"] if shutil.which("gtk-launch") else COLORS["warning"],
-            )
+        thread = QThread(self)
+        worker = AskWorker(assistant, text)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._assistant_finished)
+        worker.failed.connect(self._assistant_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        self._active_thread = thread
+        self._active_worker = worker
+        thread.start()
 
-            if settings.memory_enabled:
+    @Slot(str)
+    def _assistant_finished(self, answer: str) -> None:
+        self._append_assistant(answer)
+        self._set_idle()
+
+    @Slot(str)
+    def _assistant_failed(self, error: str) -> None:
+        self._append_error(error)
+        self._set_idle()
+
+    def _set_idle(self) -> None:
+        self.busy = False
+        self.send_button.setEnabled(True)
+        self.send_button.setText("Enviar")
+        self.prompt.setEnabled(True)
+        self.prompt.setFocus()
+
+    def _append_user(self, text: str) -> None:
+        safe = html.escape(text).replace("\n", "<br>")
+        self.chat.append(
+            f"<div style='margin-top:12px;'><span style='color:{COLORS['cyan']}; font-weight:700;'>Você:</span><br>"
+            f"<span style='color:{COLORS['text']};'>{safe}</span></div>"
+        )
+        self.chat.moveCursor(self.chat.textCursor().MoveOperation.End)
+
+    def _append_assistant(self, text: str) -> None:
+        safe = html.escape(text).replace("\n", "<br>")
+        self.chat.append(
+            f"<div style='margin-top:12px;'><span style='color:{COLORS['green']}; font-weight:700;'>J.A.R.V.I.S.:</span><br>"
+            f"<span style='color:{COLORS['text']};'>{safe}</span></div>"
+        )
+        self.chat.moveCursor(self.chat.textCursor().MoveOperation.End)
+
+    def _append_error(self, text: str) -> None:
+        safe = html.escape(text).replace("\n", "<br>")
+        self.chat.append(
+            f"<div style='margin-top:12px;'><span style='color:{COLORS['danger']}; font-weight:700;'>Erro:</span><br>"
+            f"<span style='color:{COLORS['muted']};'>{safe}</span></div>"
+        )
+        self.chat.moveCursor(self.chat.textCursor().MoveOperation.End)
+
+    def _refresh_status(self) -> None:
+        snap = system_snapshot()
+        self.clock_label.setText(datetime.now().strftime("%a, %d %b  %H:%M"))
+
+        values = {
+            "cpu": (str(snap["cpu"]), int(float(snap["cpu_percent"]))),
+            "memory": (str(snap["memory"]), int(float(snap["memory_percent"]))),
+            "disk": (str(snap["disk"]), int(float(snap["disk_percent"]))),
+        }
+        for key, (text, percent) in values.items():
+            if key in self.system_value_labels:
+                self.system_value_labels[key].setText(text)
+            if key in self.system_progress:
+                self.system_progress[key].setValue(percent)
+            if hasattr(self, "system_page_resource") and key in self.system_page_resource:
+                label, bar = self.system_page_resource[key]
+                label.setText(text)
+                bar.setValue(percent)
+
+        for key in ("os", "uptime", "user", "hostname", "shell", "desktop"):
+            if key in self.system_detail_labels:
+                self.system_detail_labels[key].setText(str(snap[key]))
+
+        self.tool_status_labels["system"].setText("Pronto")
+        self.tool_status_labels["system"].setStyleSheet(
+            f"color:{COLORS['green']}; font-size:10px; font-weight:700;"
+        )
+        self.tool_status_labels["apps"].setText("Pronto" if shutil.which("gtk-launch") else "Parcial")
+        self.tool_status_labels["apps"].setStyleSheet(
+            f"color:{COLORS['green'] if shutil.which('gtk-launch') else COLORS['warning']}; font-size:10px; font-weight:700;"
+        )
+        self.tool_status_labels["shell"].setText("Ativo" if settings.allow_shell else "Desligado")
+        self.tool_status_labels["shell"].setStyleSheet(
+            f"color:{COLORS['green'] if settings.allow_shell else COLORS['warning']}; font-size:10px; font-weight:700;"
+        )
+        self.tool_status_labels["memory"].setText("Ativa" if settings.memory_enabled else "Desligada")
+        self.tool_status_labels["memory"].setStyleSheet(
+            f"color:{COLORS['green'] if settings.memory_enabled else COLORS['warning']}; font-size:10px; font-weight:700;"
+        )
+
+        if settings.memory_enabled:
+            try:
                 facts = list_facts()
-                self.memory_summary.configure(
-                    text=f"Fatos lembrados: {len(facts)}\nPersistência local: ativa",
-                    fg=COLORS["text"],
+                self.memory_summary.setText(
+                    f"Fatos lembrados: {len(facts)}\nPersistência: local (SQLite)"
                 )
-            else:
-                self.memory_summary.configure(
-                    text="Persistência desativada\n(JARVIS_MEMORY_ENABLED=false)",
-                    fg=COLORS["muted"],
-                )
-        finally:
-            self.root.after(2000, self._tick_status)
+            except Exception as exc:  # noqa: BLE001
+                self.memory_summary.setText(f"Memória indisponível: {exc}")
+        else:
+            self.memory_summary.setText("Persistência desativada\nAtive somente se quiser memória local")
 
 
 def run_gui() -> None:
-    root = tk.Tk()
-    JarvisGUI(root)
-    root.mainloop()
+    app = QApplication.instance() or QApplication([])
+    app.setApplicationName("J.A.R.V.I.S.")
+    app.setOrganizationName("Jczarf")
+    app.setFont(QFont("Sans Serif", 10))
+    window = JarvisWindow()
+    window.show()
+    app.exec()
