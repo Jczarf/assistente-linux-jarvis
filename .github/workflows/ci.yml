@@ -27,5 +27,9 @@ jobs:
           python -m pip install -r requirements.txt pytest
       - name: Compilação
         run: python -m compileall -q jarvis main.py
+      - name: Smoke test da GUI
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -c "from jarvis.gui import system_snapshot; s = system_snapshot(); assert 'os' in s and 'memory' in s"
       - name: Testes
         run: python -m pytest -q
