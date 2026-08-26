@@ -57,14 +57,15 @@ def main() -> None:
         run_gui()
     except (ImportError, ModuleNotFoundError) as exc:
         raise SystemExit(
-            "Interface gráfica indisponível. Instale o suporte Tk do Python "
-            "(em Debian/Ubuntu: sudo apt install python3-tk) ou use --cli."
+            "Interface gráfica Qt indisponível. Instale as dependências com "
+            "`pip install -r requirements.txt` ou use `python main.py --cli`."
         ) from exc
     except Exception as exc:
-        if "display" in str(exc).lower() or "tk" in type(exc).__name__.lower():
+        message = str(exc).lower()
+        if any(term in message for term in ("display", "xcb", "wayland", "platform plugin")):
             raise SystemExit(
                 "Não foi possível abrir a interface gráfica neste ambiente. "
-                "Use `python main.py --cli` em sessões SSH/headless."
+                "Em sessões SSH/headless use `python main.py --cli`."
             ) from exc
         raise
 
