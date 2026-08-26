@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
+
 from jarvis.config import settings
 from jarvis.core import JarvisAssistant
 
 
-def main() -> None:
+def run_cli() -> None:
     print(f"\n{settings.assistant_name} — Assistente para Linux")
     print("Digite 'sair' para encerrar.\n")
 
@@ -34,6 +36,37 @@ def main() -> None:
             continue
 
         print(f"{settings.assistant_name}: {answer}\n")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="J.A.R.V.I.S. — Assistente para Linux")
+    parser.add_argument(
+        "--cli",
+        action="store_true",
+        help="usa a interface de terminal em vez da interface gráfica",
+    )
+    args = parser.parse_args()
+
+    if args.cli:
+        run_cli()
+        return
+
+    try:
+        from jarvis.gui import run_gui
+
+        run_gui()
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise SystemExit(
+            "Interface gráfica indisponível. Instale o suporte Tk do Python "
+            "(em Debian/Ubuntu: sudo apt install python3-tk) ou use --cli."
+        ) from exc
+    except Exception as exc:
+        if "display" in str(exc).lower() or "tk" in type(exc).__name__.lower():
+            raise SystemExit(
+                "Não foi possível abrir a interface gráfica neste ambiente. "
+                "Use `python main.py --cli` em sessões SSH/headless."
+            ) from exc
+        raise
 
 
 if __name__ == "__main__":
