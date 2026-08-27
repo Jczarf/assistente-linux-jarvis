@@ -58,7 +58,7 @@ def main() -> None:
     except (ImportError, ModuleNotFoundError) as exc:
         raise SystemExit(
             "Interface gráfica Qt indisponível. Instale as dependências com "
-            "`pip install -r requirements.txt` ou use `python main.py --cli`."
+            "`pip install .` ou use `python main.py --cli`."
         ) from exc
     except Exception as exc:
         message = str(exc).lower()
