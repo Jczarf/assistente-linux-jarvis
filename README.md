@@ -4,90 +4,84 @@
 
 # J.A.R.V.I.S. — Assistente Inteligente para Linux
 
-Protótipo pessoal em evolução de um assistente para Linux que conecta **LLMs, function calling, interface gráfica e automação local**. Esta edição foi refatorada para portfólio, removendo configurações pessoais, segredos, caminhos fixos e partes excessivamente acopladas ao computador de desenvolvimento.
+Assistente desktop experimental para Linux que integra **Gemini, function calling, ferramentas locais, memória SQLite e uma interface PySide6**.
 
-> **Estado real:** esta não é a versão completa do assistente original e não deve ser apresentada como produto finalizado. Há um núcleo público funcional e sanitizado; voz, wake word, visão e automações mais amplas continuam experimentais, privadas ou ainda não foram portadas.
+O objetivo desta edição pública é simples: **mostrar somente o que realmente funciona**. Controles de voz, automações amplas e outros experimentos do protótipo privado não aparecem como botões ativos enquanto não houver implementação pública verificável.
 
-## Estado do projeto
+<p align="center">
+  <img src="assets/screenshot-real.png" alt="Interface real do J.A.R.V.I.S." width="900">
+</p>
+
+## Estado atual
 
 | Área | Estado |
 |---|---|
-| Interface gráfica desktop em PySide6 / Qt 6 | ✅ Implementada nesta edição |
-| Chat gráfico + Gemini + function calling | ✅ Implementado nesta edição |
-| Painel real de CPU, RAM e disco | ✅ Implementado com `psutil` |
-| CLI | ✅ Mantida como fallback com `--cli` |
-| Memória SQLite opcional | ✅ Implementada nesta edição |
-| Política básica de segurança para shell | 🧪 Implementada, mas não é sandbox formal |
-| Testes + GitHub Actions | 🧪 CI precisa permanecer verde após a migração para Qt |
-| Voz, wake word, visão e automação ampla | 📋 Protótipo privado / não portados integralmente |
+| Chat gráfico + Gemini | ✅ Funcional |
+| Function calling com resultado estruturado | ✅ Funcional |
+| Busca e abertura de aplicativos XDG | ✅ Funcional |
+| CPU, RAM, disco, uptime e sessão Linux | ✅ Funcional |
+| Memória SQLite local | ✅ Funcional quando habilitada |
+| Shell local | ⚠️ Opt-in, desativado por padrão |
+| Layout responsivo desktop | ✅ Compacto, médio e amplo |
+| CLI com `--cli` | ✅ Funcional |
+| CI + testes | ✅ Automatizados |
+| Voz, wake word, visão e automação ampla | 📋 Fora da interface pública até implementação verificável |
 
-Detalhamento: [`docs/ESTADO-DO-PROJETO.md`](docs/ESTADO-DO-PROJETO.md).
+## O que mudou na revisão de funcionalidade
 
-## Interface gráfica
+A interface deixou de ser tratada como mockup. Cada área visível agora corresponde a uma capacidade real:
 
-A GUI foi reconstruída em **PySide6 / Qt 6** para ficar muito mais próxima do mockup criado para o projeto.
+- **Ferramentas** executa leitura do sistema, pesquisa aplicativos, abre aplicativos e expõe shell somente quando habilitado;
+- **Memória** permite adicionar, atualizar e remover fatos do SQLite local;
+- **Sistema** acompanha recursos reais do computador;
+- **Configurações** mostra o estado efetivamente carregado e oferece diagnóstico não sensível;
+- páginas e controles sem backend público real foram removidos da navegação.
 
-A composição segue a mesma direção visual:
-
-- sidebar escura com navegação à esquerda;
-- terminal/chat no centro;
-- inspector à direita;
-- verde neon e ciano como destaques;
-- cartões arredondados com bordas e sombras;
-- CPU, RAM e disco com barras de progresso reais;
-- status de ferramentas, memória e shell;
-- páginas específicas para Ferramentas, Automação, Memória, Sistema e Configurações;
-- tipografia preparada para Inter e JetBrains Mono, com fallbacks portáveis.
-
-A interface mostra **estado real**, em vez de simular funcionalidades:
-
-- CPU, RAM, disco, uptime, hostname, shell e desktop são lidos do computador;
-- shell e memória mostram se estão realmente habilitados;
-- voz aparece como **não portada** e o microfone permanece desabilitado;
-- automação avançada é apresentada como recurso ainda não portado;
-- o chat usa o mesmo núcleo e o mesmo dispatcher da CLI;
-- chamadas ao modelo são feitas em `QThread` para não congelar a janela.
-
-Documentação: [`docs/INTERFACE-GRAFICA.md`](docs/INTERFACE-GRAFICA.md).
-
-## O que o projeto demonstra
-
-- construção de interface desktop com Qt/PySide6;
-- integração de IA com ferramentas locais;
-- arquitetura modular em Python;
-- configuração segura por variáveis de ambiente;
-- execução de comandos com política de segurança;
-- memória SQLite opcional e local;
-- descoberta de aplicações de forma portátil;
-- monitoramento básico do Linux em tempo real;
-- tratamento explícito de diferenças entre distribuições;
-- testes e CI.
-
-## Arquitetura
-
-<p align="center">
-  <img src="assets/arquitetura.svg" alt="Arquitetura simplificada" width="900">
-</p>
-
-O modelo **não executa ações diretamente**. Ele solicita uma ferramenta, o dispatcher valida a chamada e somente então uma ação local é executada.
+A janela também não depende mais de um tamanho fixo grande. O layout possui três modos:
 
 ```text
-PySide6 GUI / CLI
-       ↓
-Usuário → LLM → Function Calling → Dispatcher → Política de segurança → Linux
-                                              ↓
-                                        resultado estruturado
-                                              ↓
-                                           resposta
+< 780 px       compacto
+780–1119 px    médio
+>= 1120 px     amplo
 ```
 
-Mais detalhes em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+No modo compacto a sidebar vira navegação por ícones e o inspector é ocultado. Cards de Ferramentas e Sistema são reorganizados conforme a largura.
+
+## Agente: execução verificável
+
+O modelo não executa ações diretamente.
+
+```text
+Usuário
+  ↓
+Gemini
+  ↓ function call
+Dispatcher
+  ↓
+Ferramenta local
+  ↓
+{ ok, tool, message, data/error }
+  ↓
+Gemini
+  ↓
+Resposta ao usuário
+```
+
+O contrato das ferramentas diferencia sucesso e falha explicitamente. O agente recebe instruções para **não declarar uma ação concluída quando `ok=false`**.
+
+Também existem limites contra loops e chamadas penduradas:
+
+- timeout configurável para requisições ao modelo;
+- número máximo de etapas do agente;
+- retentativas de API limitadas;
+- bloqueio de chamadas idênticas repetidas;
+- finalização automática sem novas ferramentas ao atingir o limite.
+
+Isso não transforma o modelo em um sistema infalível, mas reduz dois problemas concretos: repetição sem progresso e afirmação de sucesso sem evidência.
 
 ## Stack
 
-`Python 3.11+` · `PySide6 / Qt 6` · `Gemini API` · `SQLite` · `python-dotenv` · `psutil`
-
-Recursos avançados como voz, wake word, visão e automação de navegador pertencem ao protótipo original e estão documentados como extensões, não como funcionalidades concluídas desta edição.
+`Python 3.11+` · `PySide6 / Qt 6` · `google-genai` · `SQLite` · `psutil` · `python-dotenv`
 
 ## Instalação
 
@@ -97,15 +91,25 @@ cd assistente-linux-jarvis
 
 python3 -m venv .venv
 source .venv/bin/activate
+
 pip install -r requirements.txt
 
 cp .env.example .env
-# adicione sua própria GEMINI_API_KEY no arquivo .env
+```
 
+Adicione sua própria chave ao `.env`:
+
+```env
+GEMINI_API_KEY=sua_chave
+```
+
+Execute:
+
+```bash
 python main.py
 ```
 
-Para usar somente o terminal:
+Fallback de terminal:
 
 ```bash
 python main.py --cli
@@ -114,53 +118,72 @@ python main.py --cli
 ## Configuração
 
 ```env
-GEMINI_API_KEY=sua_chave_aqui
+GEMINI_API_KEY=
 JARVIS_MODEL=gemini-2.5-flash
 JARVIS_NAME=JARVIS
+
 JARVIS_MEMORY_ENABLED=false
 JARVIS_ALLOW_SHELL=false
+JARVIS_SHELL_TIMEOUT=8
+JARVIS_MAX_COMMAND_LENGTH=500
+
+JARVIS_REQUEST_TIMEOUT=45
+JARVIS_MAX_AGENT_STEPS=6
+JARVIS_AGENT_RETRIES=2
+JARVIS_TOOL_REPEAT_LIMIT=1
 ```
 
-A edição pública adota defaults conservadores: **memória persistente e shell genérico vêm desativados**. Eles precisam ser habilitados explicitamente.
+Memória e shell permanecem **desativados por padrão**.
 
-## Compatibilidade
+Mudanças no `.env` são aplicadas ao reiniciar o aplicativo.
 
-A camada pública evita caminhos hardcoded e tenta descobrir recursos usando `PATH`, variáveis XDG e ferramentas disponíveis no sistema.
+## Ferramentas disponíveis ao modelo
 
-| Ambiente | Situação |
-|---|---|
-| Linux Mint / Ubuntu / Debian | alvo principal |
-| Fedora | funções básicas projetadas para funcionar |
-| Arch Linux | funções básicas projetadas para funcionar |
-| X11 / Wayland | Qt usa o backend gráfico disponível; automação depende do ambiente |
-| SSH/headless | use `python main.py --cli` |
-| Windows/macOS | fora do escopo atual |
+### `system_info`
 
-Essa tabela representa **escopo de compatibilidade**, não certificação em todas as distribuições. Veja [`docs/COMPATIBILIDADE.md`](docs/COMPATIBILIDADE.md).
+Retorna estado atual de sistema, CPU, RAM e disco.
+
+### `list_apps`
+
+Pesquisa aplicações gráficas pelas entradas XDG `.desktop`.
+
+### `open_app`
+
+Abre um executável no `PATH` ou uma entrada XDG quando o usuário pede explicitamente.
+
+### `run_command`
+
+Executa shell somente quando `JARVIS_ALLOW_SHELL=true`, com limite de tamanho, timeout e bloqueios básicos.
+
+### `remember` / `recall`
+
+Persistência SQLite local quando `JARVIS_MEMORY_ENABLED=true`.
 
 ## Segurança
 
-Dar ferramentas locais a um LLM exige limites explícitos. Esta versão:
+Este projeto dá acesso limitado do LLM ao computador local, então defaults conservadores são intencionais:
 
-- não contém chaves de API;
-- não contém IPs, senhas, e-mails privados ou caminhos pessoais;
-- mantém `.env` e bancos locais fora do Git;
-- bloqueia padrões destrutivos conhecidos no shell;
-- desativa shell por padrão;
-- limita tamanho e tempo de comandos;
-- recomenda confirmação humana para ações sensíveis;
-- mantém dados de memória somente no computador do usuário;
-- não apresenta voz/automação privada como se estivesse ativa.
+- `.env`, banco local e credenciais ficam fora do Git;
+- shell vem desligado;
+- comandos multilinha e padrões destrutivos conhecidos são bloqueados;
+- comandos possuem timeout e limite de tamanho;
+- ferramentas retornam sucesso/falha de forma estruturada;
+- o modelo é instruído a não transformar falha em sucesso;
+- memória é local e opcional.
 
-Essas proteções **reduzem risco, mas não constituem uma sandbox formal**. Leia [`docs/SEGURANCA.md`](docs/SEGURANCA.md).
+**A política de shell não é uma sandbox formal.** Não habilite execução genérica em ambientes onde um comando incorreto possa causar dano relevante.
 
-## Demonstração
+Mais detalhes: [`docs/SEGURANCA.md`](docs/SEGURANCA.md).
 
-<p align="center">
-  <img src="assets/demo-terminal.svg" alt="Exemplo conceitual de uso" width="820">
-</p>
+## Testes
 
-O material visual do portfólio serviu como referência de design. A interface real agora replica a estrutura principal do mockup, mas screenshots reais ainda devem ser capturados em uma sessão Linux desktop para substituir representações conceituais.
+```bash
+python -m pytest -q
+```
+
+O CI cobre atualmente Python 3.11 e 3.12, compilação, verificações de segurança, ferramentas e regras de layout.
+
+A validação headless não substitui teste visual em um desktop Linux real.
 
 ## Estrutura
 
@@ -178,23 +201,14 @@ O material visual do portfólio serviu como referência de design. A interface r
 ├── assets/
 ├── docs/
 ├── .env.example
-├── .gitignore
 └── requirements.txt
 ```
 
-## IA aplicada ao desenvolvimento
+## Escopo
 
-O projeto também serviu como ambiente de experimentação com desenvolvimento assistido por IA: planejamento, implementação, revisão, testes, documentação e investigação de falhas. Sugestões produzidas por agentes são tratadas como propostas e passam por revisão antes de serem incorporadas.
+O J.A.R.V.I.S. é um **projeto pessoal em evolução**, não um assistente de sistema operacional pronto para produção.
 
-## Limitações conhecidas
-
-A GUI pública cobre o fluxo de texto, monitoramento do sistema e páginas de estado, mas ainda não replica integralmente o protótipo privado. Integrações que dependem de microfone, wake word, visão, navegador ou permissões elevadas permanecem deliberadamente fora desta edição até serem sanitizadas e testadas.
-
-O CI é executado em ambiente headless: ele pode validar importação, compilação e testes, mas não substitui inspeção visual da janela em desktops Linux reais.
-
-## Status
-
-**Protótipo pessoal em evolução.** A edição pública demonstra um subconjunto sanitizado da arquitetura original, agora com uma GUI Qt de alta fidelidade em relação ao conceito visual.
+A edição pública prioriza código que possa ser lido, executado e explicado. Funcionalidades do protótipo privado só devem voltar para a interface quando puderem ser testadas de forma reproduzível.
 
 ## Autor
 
