@@ -7,7 +7,7 @@
 Assistente desktop para Linux desenvolvido em Python. O projeto integra **Gemini 3.6 Flash**, ferramentas locais, memória SQLite opcional e uma interface em **PySide6 / Qt 6**.
 
 <p align="center">
-  <img src="assets/screenshot-real.png" alt="Interface do J.A.R.V.I.S." width="900">
+  <img src="assets/screenshot-real.webp" alt="Interface real do J.A.R.V.I.S. em execução no Linux" width="100%">
 </p>
 
 ## Recursos
