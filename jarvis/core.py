@@ -58,6 +58,7 @@ class JarvisAssistant:
         contents: list[types.Content],
         *,
         allow_tools: bool,
+        finalizing: bool = False,
     ):
         last_error: Exception | None = None
         for attempt in range(settings.agent_retries + 1):
@@ -66,7 +67,11 @@ class JarvisAssistant:
                     model=settings.model,
                     contents=contents,
                     config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
+                        system_instruction=(
+                            f"{SYSTEM_PROMPT}\n\n{FINALIZE_PROMPT}"
+                            if finalizing
+                            else SYSTEM_PROMPT
+                        ),
                         temperature=0.25,
                         max_output_tokens=2048,
                         tools=[self.tools] if allow_tools else None,
@@ -154,11 +159,11 @@ class JarvisAssistant:
 
             self.history.append(types.Content(role="user", parts=tool_responses))
 
-        finalize_contents = [
-            *self.history,
-            types.Content(role="user", parts=[types.Part(text=FINALIZE_PROMPT)]),
-        ]
-        response = self._generate(finalize_contents, allow_tools=False)
+        response = self._generate(
+            self.history,
+            allow_tools=False,
+            finalizing=True,
+        )
         answer = (response.text or "").strip()
         if not answer:
             answer = (
