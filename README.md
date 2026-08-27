@@ -22,35 +22,55 @@ Assistente desktop para Linux desenvolvido em Python. O projeto integra **Gemini
 
 ## Instalação
 
-Requer Python 3.11 ou superior.
+### Requisitos
+
+- **Python 3.12** recomendado;
+- Python 3.11+ é suportado pelo projeto;
+- Linux desktop para a interface gráfica;
+- chave da API Gemini e conexão com a internet para o chat.
+
+Enquanto o repositório estiver privado, use SSH se sua chave GitHub estiver configurada:
 
 ```bash
-git clone https://github.com/Jczarf/assistente-linux-jarvis.git
+git clone git@github.com:Jczarf/assistente-linux-jarvis.git
 cd assistente-linux-jarvis
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install .
-
-cp .env.example .env
+./install.sh
+./run.sh
 ```
 
-Adicione sua chave do Gemini ao arquivo `.env`:
+O `install.sh` cria o `.venv`, instala as dependências e cria o `.env` a partir do exemplo quando necessário. O `run.sh` usa diretamente `.venv/bin/python`, então não é necessário ativar o ambiente virtual. Os dois scripts resolvem o diretório do projeto automaticamente e podem ser chamados por caminho absoluto.
+
+Para escolher o interpretador:
+
+```bash
+PYTHON_BIN=python3.12 ./install.sh
+```
+
+Depois da primeira instalação, adicione sua chave ao arquivo `.env`:
 
 ```env
 GEMINI_API_KEY=sua_chave
 ```
 
-Depois execute:
+### Instalação manual
 
 ```bash
-python main.py
+python3.12 -m venv .venv
+.venv/bin/python -m pip install .
+cp .env.example .env
+.venv/bin/python main.py
 ```
 
-Para usar pelo terminal:
+No Fish, se quiser ativar o ambiente:
+
+```fish
+source .venv/bin/activate.fish
+```
+
+Para iniciar diretamente em modo terminal:
 
 ```bash
-python main.py --cli
+./run.sh --cli
 ```
 
 ## Configuração
@@ -64,7 +84,7 @@ JARVIS_MEMORY_ENABLED=false
 JARVIS_ALLOW_SHELL=false
 ```
 
-Outros limites de execução e timeout estão documentados no próprio `.env.example`.
+Outros limites de execução e timeout estão no `.env.example`.
 
 Memória persistente e shell ficam desativados por padrão.
 
@@ -73,6 +93,8 @@ Memória persistente e shell ficam desativados por padrão.
 ```text
 .
 ├── main.py
+├── install.sh
+├── run.sh
 ├── jarvis/
 │   ├── config.py
 │   ├── core.py
