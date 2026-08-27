@@ -9,4 +9,9 @@ if [[ ! -x "$PYTHON" ]]; then
   exit 1
 fi
 
+if ! "$PYTHON" -c 'from importlib.metadata import version; p=version("google-genai").split("."); raise SystemExit(0 if tuple(map(int, p[:2])) >= (2, 11) else 1)' >/dev/null 2>&1; then
+  echo "Dependências do JARVIS estão desatualizadas. Execute $PROJECT_DIR/install.sh novamente." >&2
+  exit 1
+fi
+
 exec "$PYTHON" "$PROJECT_DIR/main.py" "$@"
