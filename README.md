@@ -4,7 +4,7 @@
 
 # J.A.R.V.I.S.
 
-Assistente desktop para Linux desenvolvido em Python. O projeto integra **Gemini**, ferramentas locais, memória SQLite opcional e uma interface em **PySide6 / Qt 6**.
+Assistente desktop para Linux desenvolvido em Python. O projeto integra **Gemini 3.6 Flash**, ferramentas locais, memória SQLite opcional e uma interface em **PySide6 / Qt 6**.
 
 <p align="center">
   <img src="assets/screenshot-real.png" alt="Interface do J.A.R.V.I.S." width="900">
@@ -12,7 +12,7 @@ Assistente desktop para Linux desenvolvido em Python. O projeto integra **Gemini
 
 ## Recursos
 
-- chat com Gemini e function calling;
+- chat com Gemini 3.6 Flash e function calling pela Interactions API;
 - informações de CPU, memória, disco e sessão Linux;
 - busca e abertura de aplicativos pelas entradas XDG;
 - shell local opcional, com timeout e bloqueios básicos;
@@ -39,6 +39,8 @@ cd assistente-linux-jarvis
 ```
 
 O `install.sh` cria o `.venv`, instala as dependências e cria o `.env` a partir do exemplo quando necessário. O `run.sh` usa diretamente `.venv/bin/python`, então não é necessário ativar o ambiente virtual. Os dois scripts resolvem o diretório do projeto automaticamente e podem ser chamados por caminho absoluto.
+
+Instalações antigas que ainda usam `JARVIS_MODEL=gemini-2.5-flash` são atualizadas pelo `install.sh` para o modelo padrão atual.
 
 Para escolher o interpretador:
 
@@ -78,7 +80,7 @@ Para iniciar diretamente em modo terminal:
 As principais opções ficam no `.env`:
 
 ```env
-JARVIS_MODEL=gemini-2.5-flash
+JARVIS_MODEL=gemini-3.6-flash
 JARVIS_NAME=JARVIS
 JARVIS_MEMORY_ENABLED=false
 JARVIS_ALLOW_SHELL=false

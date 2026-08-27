@@ -30,7 +30,7 @@ def _as_int(name: str, default: int) -> int:
 @dataclass(frozen=True)
 class Settings:
     api_key: str = os.getenv("GEMINI_API_KEY", "")
-    model: str = os.getenv("JARVIS_MODEL", "gemini-2.5-flash")
+    model: str = os.getenv("JARVIS_MODEL", "gemini-3.6-flash")
     assistant_name: str = os.getenv("JARVIS_NAME", "JARVIS")
     memory_enabled: bool = _as_bool("JARVIS_MEMORY_ENABLED", False)
     allow_shell: bool = _as_bool("JARVIS_ALLOW_SHELL", False)

@@ -43,9 +43,32 @@ fi
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install .
 
+SDK_VERSION="$(.venv/bin/python -c 'from importlib.metadata import version; print(version("google-genai"))')"
+echo "Google Gen AI SDK $SDK_VERSION instalado."
+
 if [[ ! -f .env ]]; then
   cp .env.example .env
   echo "Arquivo .env criado. Adicione sua GEMINI_API_KEY antes de iniciar o JARVIS."
+else
+  MODEL_MIGRATED="$(.venv/bin/python - <<'PY'
+from pathlib import Path
+
+path = Path('.env')
+lines = path.read_text(encoding='utf-8').splitlines()
+changed = False
+for index, line in enumerate(lines):
+    if line.strip() == 'JARVIS_MODEL=gemini-2.5-flash':
+        indent = line[: len(line) - len(line.lstrip())]
+        lines[index] = f'{indent}JARVIS_MODEL=gemini-3.6-flash'
+        changed = True
+if changed:
+    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+print('1' if changed else '0')
+PY
+)"
+  if [[ "$MODEL_MIGRATED" == "1" ]]; then
+    echo "JARVIS_MODEL atualizado: gemini-2.5-flash -> gemini-3.6-flash."
+  fi
 fi
 
 echo "Instalação concluída. Execute ./run.sh"
