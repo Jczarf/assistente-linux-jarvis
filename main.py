@@ -38,6 +38,23 @@ def run_cli() -> None:
         print(f"{settings.assistant_name}: {answer}\n")
 
 
+def _prepare_qt_palette() -> None:
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    palette = app.palette()
+    palette.setColor(QPalette.ColorRole.Window, QColor("#070c11"))
+    palette.setColor(QPalette.ColorRole.Base, QColor("#0a1118"))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#111a24"))
+    palette.setColor(QPalette.ColorRole.Button, QColor("#111a24"))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor("#e8eef3"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#e8eef3"))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#e8eef3"))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#647581"))
+    app.setPalette(palette)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="J.A.R.V.I.S. — Assistente para Linux")
     parser.add_argument(
@@ -52,6 +69,7 @@ def main() -> None:
         return
 
     try:
+        _prepare_qt_palette()
         from jarvis.gui import run_gui
 
         run_gui()
