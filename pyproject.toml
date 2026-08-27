@@ -1,7 +1,7 @@
 [project]
 name = "assistente-linux-jarvis"
 version = "1.2.0"
-description = "Edição pública sanitizada de um assistente inteligente para Linux com LLM, function calling e interface gráfica em Qt."
+description = "Assistente desktop para Linux com Gemini, ferramentas locais, memória SQLite e interface PySide6."
 requires-python = ">=3.11"
 authors = [{ name = "Júlio Cézar" }]
 readme = "README.md"
@@ -11,8 +11,3 @@ dependencies = [
   "psutil>=6.0.0,<8.0.0",
   "PySide6>=6.7.0,<7.0.0",
 ]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-q"
