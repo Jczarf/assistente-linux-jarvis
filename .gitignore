@@ -1,4 +1,4 @@
-# Segredos e configuração local
+# Configuração local
 .env
 .env.*
 !.env.example
@@ -7,14 +7,14 @@
 *.p12
 *.pfx
 
-# Ambientes Python
+# Python
 .venv/
 venv/
 __pycache__/
 *.pyc
 *.pyo
 
-# Dados locais do assistente
+# Dados locais
 *.db
 *.db-journal
 *.db-wal
@@ -23,14 +23,7 @@ __pycache__/
 *.bak
 jarvis_data/
 
-# Ferramentas / testes
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-
-# IDE / sistema
+# Editor e sistema
 .vscode/
 .idea/
 .DS_Store

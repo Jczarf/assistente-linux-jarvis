@@ -14,8 +14,7 @@
   <circle cx="930" cy="210" r="108" fill="none" stroke="#38bdf8" stroke-width="2" opacity=".7"/>
   <circle cx="930" cy="210" r="76" fill="none" stroke="#7dd3fc" stroke-width="1" opacity=".6"/>
   <path d="M860 210h140M930 140v140" stroke="#38bdf8" stroke-width="2" opacity=".5"/>
-  <text x="72" y="145" fill="#f8fafc" font-family="Arial,Helvetica,sans-serif" font-size="54" font-weight="700">J.A.R.V.I.S.</text>
-  <text x="72" y="205" fill="#7dd3fc" font-family="Arial,Helvetica,sans-serif" font-size="28">Assistente Inteligente para Linux</text>
-  <text x="72" y="260" fill="#cbd5e1" font-family="Arial,Helvetica,sans-serif" font-size="20">LLM · Function Calling · Automação · Segurança · Python</text>
-  <text x="72" y="330" fill="#64748b" font-family="Arial,Helvetica,sans-serif" font-size="16">edição pública sanitizada para portfólio técnico</text>
+  <text x="72" y="160" fill="#f8fafc" font-family="Arial,Helvetica,sans-serif" font-size="54" font-weight="700">J.A.R.V.I.S.</text>
+  <text x="72" y="220" fill="#7dd3fc" font-family="Arial,Helvetica,sans-serif" font-size="28">Assistente para Linux</text>
+  <text x="72" y="278" fill="#cbd5e1" font-family="Arial,Helvetica,sans-serif" font-size="20">Python · PySide6 · Gemini · SQLite · Linux</text>
 </svg>
