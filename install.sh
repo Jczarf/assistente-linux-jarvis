@@ -25,8 +25,19 @@ if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3,
   exit 1
 fi
 
+SELECTED_VERSION="$($PYTHON_BIN -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')"
+
+if [[ -d .venv && ! -x .venv/bin/python ]]; then
+  echo "O diretório .venv existe, mas está incompleto. Remova-o e execute ./install.sh novamente." >&2
+  exit 1
+fi
+
 if [[ ! -d .venv ]]; then
+  echo "Criando .venv com $PYTHON_BIN (Python $SELECTED_VERSION)..."
   "$PYTHON_BIN" -m venv .venv
+else
+  VENV_VERSION="$(.venv/bin/python -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')"
+  echo "Usando .venv existente com Python $VENV_VERSION."
 fi
 
 .venv/bin/python -m pip install --upgrade pip
