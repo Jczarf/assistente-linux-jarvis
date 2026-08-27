@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 from jarvis.config import settings
 
 
-def _db_path():
+def _db_path() -> Path:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings.data_dir / "memory.db"
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(_db_path())
+    conn = sqlite3.connect(_db_path(), timeout=5)
     conn.execute(
         """CREATE TABLE IF NOT EXISTS facts (
             key TEXT PRIMARY KEY,
@@ -23,10 +24,15 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _normalize_key(key: str) -> str:
+    return key.strip().lower()[:80]
+
+
 def save_fact(key: str, value: str) -> str:
     if not settings.memory_enabled:
         return "Memória persistente está desativada."
-    key = key.strip().lower()[:80]
+
+    key = _normalize_key(key)
     value = value.strip()[:1000]
     if not key or not value:
         return "Chave e valor são obrigatórios."
@@ -34,10 +40,27 @@ def save_fact(key: str, value: str) -> str:
     with _connect() as conn:
         conn.execute(
             """INSERT INTO facts(key, value, updated_at) VALUES (?, ?, ?)
-               ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+               ON CONFLICT(key) DO UPDATE SET
+                 value=excluded.value,
+                 updated_at=excluded.updated_at""",
             (key, value, datetime.now(timezone.utc).isoformat()),
         )
     return f"Informação '{key}' salva localmente."
+
+
+def delete_fact(key: str) -> str:
+    if not settings.memory_enabled:
+        return "Memória persistente está desativada."
+
+    key = _normalize_key(key)
+    if not key:
+        return "Chave é obrigatória."
+
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM facts WHERE key = ?", (key,))
+    if cursor.rowcount:
+        return f"Informação '{key}' removida."
+    return f"Informação '{key}' não existe."
 
 
 def list_facts() -> dict[str, str]:

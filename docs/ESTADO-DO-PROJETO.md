@@ -1,84 +1,120 @@
 # Estado real do projeto
 
-Este documento separa o que existe na edição pública, o que pertence ao protótipo privado e o que ainda não deve ser tratado como concluído.
+Este documento separa o que existe na edição pública do J.A.R.V.I.S. do que ainda pertence ao protótipo privado ou permanece fora de escopo.
 
 ## Legenda
 
-- ✅ **Implementado e verificado nesta edição** — há código correspondente e, quando aplicável, validação automatizada recente.
-- 🧪 **Parcial / em validação** — existe implementação ou experimento, mas não deve ser apresentado como concluído ou amplamente validado.
-- 📋 **Fora da edição pública / planejado** — pertence ao protótipo privado, depende do ambiente original ou ainda não foi consolidado para publicação.
+- ✅ **Implementado** — existe código correspondente e validação automatizada quando aplicável.
+- 🧪 **Parcial / condicionado ao ambiente** — existe implementação, mas o comportamento depende de permissões, desktop Linux ou configuração explícita.
+- 📋 **Fora da edição pública** — não aparece como funcionalidade ativa enquanto não houver implementação pública verificável.
 
 ## Estado por área
 
 | Área | Estado | Observação |
 |---|---|---|
-| Interface gráfica desktop | 🧪 | GUI foi reconstruída em PySide6 / Qt 6 para seguir de perto o mockup. Código implementado; validação visual em desktop Linux real ainda é necessária. |
-| Chat gráfico integrado ao núcleo | ✅ | Usa o mesmo `JarvisAssistant` da CLI e executa chamadas em `QThread` para não bloquear a janela. |
-| Painel de CPU, RAM e disco | ✅ | Dados reais atualizados periodicamente com `psutil`. |
-| Navegação GUI: Chat, Ferramentas, Automação, Memória, Sistema e Configurações | ✅ | Páginas implementadas na edição pública. |
-| CLI em Python | ✅ | Mantida como fallback com `python main.py --cli`. |
-| Integração com Gemini | ✅ | Configurada por variável de ambiente; chamadas reais continuam dependentes de chave e serviço externo. |
-| Function calling e dispatcher | ✅ | Núcleo reduzido presente na edição pública. |
-| Informações básicas do sistema | ✅ | Implementação portátil com `psutil`. |
-| Memória local SQLite | ✅ | Opcional e desativada por padrão. |
-| Shell genérico | 🧪 | Existe, mas é opt-in e possui política de bloqueio; não é sandbox formal. |
-| Testes automatizados | ✅ | Suíte básica existente; deve permanecer verde após a migração para Qt. |
-| GitHub Actions | 🧪 | Workflow atualizado com smoke test de importação da GUI via `QT_QPA_PLATFORM=offscreen`; resultado da nova baseline ainda precisa ser confirmado. |
-| Renderização visual em múltiplos desktops Linux | 🧪 | A GUI possui fallbacks de fonte e tamanho mínimo definido, mas ainda não foi inspecionada em diferentes compositores, escalas e distribuições. |
-| Voz bidirecional / Gemini Live | 📋 | Parte do protótipo privado, não consolidada nesta edição. A GUI mostra a capacidade como não portada. |
-| Wake word | 📋 | Não incluído na edição pública atual. |
-| Visão/análise de tela | 📋 | Não incluída na edição pública atual. |
-| Automação ampla de navegador e desktop | 📋 | Reduzida por segurança e portabilidade; a página de Automação deixa explícito que o módulo avançado ainda não foi portado. |
-| Suporte multiplataforma | 📋 | O foco atual é Linux; Windows/macOS não são escopo desta edição. |
+| Interface gráfica PySide6 / Qt 6 | ✅ | Navegação e páginas reais implementadas. |
+| Layout responsivo | ✅ | Modos compacto, médio e amplo com mínimo de `680×520`. |
+| Chat gráfico integrado ao núcleo | ✅ | Usa o mesmo `JarvisAssistant` da CLI e processa chamadas do modelo em `QThread`. |
+| CLI em Python | ✅ | Fallback com `python main.py --cli`. |
+| Gemini | ✅ | Integração real, dependente de chave e serviço externo. |
+| Function calling | ✅ | Ferramentas retornam sucesso/falha estruturados. |
+| Proteção contra repetição de tool calls | ✅ | Chamadas idênticas acima do limite configurado não são executadas novamente. |
+| Timeout do provider | ✅ | Configurável por `JARVIS_REQUEST_TIMEOUT`. |
+| Limite de etapas do agente | ✅ | Configurável por `JARVIS_MAX_AGENT_STEPS`. |
+| Informações do sistema | ✅ | CPU, RAM, disco, kernel, uptime e sessão Linux. |
+| Busca de aplicativos XDG | ✅ | Pesquisa entradas `.desktop`. |
+| Abertura de aplicativos | 🧪 | Usa executáveis no `PATH` ou `gtk-launch`; depende do desktop disponível. |
+| Memória SQLite | ✅ | Persistência local opcional; GUI permite adicionar, atualizar e remover fatos. |
+| Shell genérico | 🧪 | Opt-in, limitado por timeout e política básica; não é sandbox formal. |
+| Configurações / diagnóstico | ✅ | Exibe estado carregado sem mostrar segredos e permite copiar diagnóstico não sensível. |
+| Testes automatizados | ✅ | `pytest` cobre ferramentas, segurança, breakpoints e lógica auxiliar do agente. |
+| GitHub Actions | ✅ | CI em Python 3.11 e 3.12, compilação, smoke da GUI e auditoria de segurança. |
+| Renderização em múltiplos desktops Linux | 🧪 | O layout é adaptativo, mas diferenças de compositor, fonte e escala ainda exigem teste visual real. |
+| Voz / wake word | 📋 | Não expostos como controle ativo na edição pública. |
+| Visão/análise de tela | 📋 | Fora da edição pública atual. |
+| Automação ampla de navegador/desktop | 📋 | Fora da interface pública até existir implementação segura e testável. |
+| Windows/macOS | 📋 | Fora do escopo atual. |
 
-## Migração visual
+## Princípio de produto
 
-A primeira GUI pública usava Tkinter e serviu como prova de integração. Ela foi substituída por **PySide6 / Qt 6** porque o objetivo de portfólio passou a ser reproduzir de forma muito mais fiel o conceito visual criado para o J.A.R.V.I.S.
+A edição pública não usa páginas ou botões para representar funcionalidades que ainda não existem.
 
-A nova interface inclui:
+Se uma capacidade não foi portada, ela deve aparecer somente como limitação documentada — não como controle interativo cenográfico.
 
-- sidebar fixa à esquerda;
-- terminal/chat central;
-- inspector fixo à direita;
-- cartões arredondados e sombras;
-- verde neon e ciano como identidade visual;
+## Arquitetura operacional
+
+```text
+GUI / CLI
+   ↓
+JarvisAssistant
+   ↓
+Gemini + function calling
+   ↓
+Dispatcher
+   ↓
+Ferramenta local
+   ↓
+{ ok, tool, message, data/error }
+   ↓
+Resposta final
+```
+
+O modelo recebe o resultado real da ferramenta e é instruído a não declarar sucesso quando `ok=false`.
+
+Para impedir repetição sem progresso, o núcleo limita etapas, bloqueia tool calls idênticas repetidas e, quando o limite é atingido, faz uma etapa final sem novas ferramentas usando somente os resultados já obtidos.
+
+## Interface atual
+
+A GUI possui:
+
+- sidebar de navegação;
+- chat central;
+- inspector apenas em larguras amplas;
+- cards responsivos;
+- páginas reais de Ferramentas, Memória, Sistema e Configurações;
 - barras reais de CPU, RAM e disco;
-- status real de ferramentas, shell e memória;
-- páginas internas com a mesma linguagem visual;
-- worker de IA em `QThread`.
+- status real de shell, memória, LLM e suporte XDG;
+- operações de memória pela própria interface.
+
+Breakpoints:
+
+```text
+< 780 px       compacto
+780–1119 px    médio
+>= 1120 px     amplo
+```
 
 ## Evidência automatizada
 
-O workflow foi atualizado para validar:
+O workflow valida:
 
-- instalação das dependências, incluindo PySide6;
+- instalação das dependências;
+- Python 3.11 e 3.12;
+- segurança da árvore pública;
 - compilação de `jarvis/` e `main.py`;
-- importação de `jarvis.gui` em modo offscreen;
-- execução da suíte pública com `pytest`;
-- Python 3.11;
-- Python 3.12.
+- importação da GUI em modo offscreen;
+- suíte `pytest`.
 
-O CI headless **não substitui inspeção visual** da janela em X11/Wayland reais.
+O CI headless **não certifica a aparência visual em todos os desktops Linux**.
 
 ## Como descrever em portfólio
 
-Use formulações como:
+Formulação adequada:
 
-> Protótipo pessoal em evolução de assistente para Linux, com edição pública sanitizada que demonstra interface desktop em Qt, integração com LLM, function calling, ferramentas locais, memória, monitoramento do sistema e controles básicos de segurança.
+> Protótipo pessoal em evolução de assistente para Linux, com interface desktop em Qt, integração com Gemini, function calling, ferramentas locais, memória SQLite, monitoramento do sistema e limites explícitos contra execução sem evidência e repetição de chamadas.
 
 Evite dizer:
 
 - “assistente completo para Linux”;
-- “sandbox seguro”;
+- “sandbox segura”;
 - “compatível com qualquer distribuição”;
-- “voz e automação avançada já funcionam na edição pública”; ou
-- que o CI headless validou visualmente a GUI.
+- “voz e automação avançada já funcionam”; ou
+- que CI headless equivale a validação visual em desktop real.
 
-## Próximos passos
+## Próximos passos legítimos
 
-- confirmar a nova baseline de CI após a migração para Qt;
-- executar a GUI em desktop Linux real e registrar screenshots reais;
-- ajustar eventuais diferenças de escala, fonte ou compositor;
-- ampliar testes de segurança e ferramentas;
-- melhorar tratamento de erros do provider;
-- selecionar e portar somente extensões privadas que sejam seguras e defensáveis em portfólio.
+- ampliar testes de integração do provider com doubles/fakes;
+- testar visualmente em X11 e Wayland com escalas diferentes;
+- melhorar cancelamento cooperativo de operações longas;
+- fortalecer a política de shell ou substituí-la por ações mais restritas;
+- portar novas capacidades somente quando houver backend, teste e comportamento de erro definidos.
