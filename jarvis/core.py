@@ -6,7 +6,6 @@ from collections import Counter
 from typing import Any
 
 from google import genai
-from google.genai import types
 
 from jarvis.config import settings
 from jarvis.tools import TOOL_DECLARATIONS, execute_tool
@@ -35,62 +34,9 @@ Não invente execução, estado, arquivo, aplicativo ou resultado."""
 class JarvisAssistant:
     def __init__(self, client: Any | None = None) -> None:
         settings.validate()
-        self.client = client or genai.Client(
-            api_key=settings.api_key,
-            http_options=types.HttpOptions(
-                timeout=settings.request_timeout_seconds * 1000
-            ),
-        )
-        self.history: list[types.Content] = []
-        self.tools = types.Tool(
-            function_declarations=[
-                types.FunctionDeclaration(
-                    name=tool["name"],
-                    description=tool["description"],
-                    parameters=tool.get("parameters"),
-                )
-                for tool in TOOL_DECLARATIONS
-            ]
-        )
-
-    def _generate(
-        self,
-        contents: list[types.Content],
-        *,
-        allow_tools: bool,
-        finalizing: bool = False,
-    ):
-        last_error: Exception | None = None
-        for attempt in range(settings.agent_retries + 1):
-            try:
-                return self.client.models.generate_content(
-                    model=settings.model,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=(
-                            f"{SYSTEM_PROMPT}\n\n{FINALIZE_PROMPT}"
-                            if finalizing
-                            else SYSTEM_PROMPT
-                        ),
-                        temperature=0.25,
-                        max_output_tokens=2048,
-                        tools=[self.tools] if allow_tools else None,
-                    ),
-                )
-            except Exception as exc:  # API/network boundary
-                last_error = exc
-                if attempt >= settings.agent_retries:
-                    break
-                time.sleep(min(0.4 * (2**attempt), 1.5))
-        raise RuntimeError(
-            f"Falha ao consultar o modelo após {settings.agent_retries + 1} tentativa(s): {last_error}"
-        ) from last_error
-
-    @staticmethod
-    def _response_parts(response: Any) -> list[Any]:
-        candidate = response.candidates[0] if getattr(response, "candidates", None) else None
-        content = candidate.content if candidate else None
-        return list(content.parts or []) if content and content.parts else []
+        self.client = client or genai.Client(api_key=settings.api_key)
+        self.history: list[dict[str, Any]] = []
+        self.tools = [dict(tool) for tool in TOOL_DECLARATIONS]
 
     @staticmethod
     def _call_signature(name: str, args: dict[str, Any]) -> str:
@@ -101,44 +47,156 @@ class JarvisAssistant:
             default=str,
         )
 
+    @staticmethod
+    def _step_to_dict(step: Any) -> dict[str, Any]:
+        if isinstance(step, dict):
+            return step
+        if hasattr(step, "model_dump"):
+            return step.model_dump(mode="json", exclude_none=True)
+        raise RuntimeError("A API retornou uma etapa em formato desconhecido.")
+
+    @staticmethod
+    def _function_args(step: Any) -> dict[str, Any]:
+        raw = getattr(step, "arguments", None)
+        if raw is None:
+            return {}
+        if isinstance(raw, dict):
+            return dict(raw)
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        try:
+            return dict(raw)
+        except (TypeError, ValueError):
+            return {}
+
+    @staticmethod
+    def _should_retry(exc: Exception) -> bool:
+        status = getattr(exc, "status_code", None)
+        if status is None:
+            status = getattr(exc, "code", None)
+        try:
+            if status is not None:
+                return int(status) in {408, 409, 429, 500, 502, 503, 504}
+        except (TypeError, ValueError):
+            pass
+
+        text = str(exc).lower()
+        non_retryable = (
+            "400 ",
+            "401 ",
+            "403 ",
+            "404 ",
+            "invalid_argument",
+            "unauthenticated",
+            "permission_denied",
+            "not_found",
+        )
+        return not any(marker in text for marker in non_retryable)
+
+    @staticmethod
+    def _friendly_error(exc: Exception) -> str:
+        raw = str(exc).strip()
+        text = raw.lower()
+        if "no longer available" in text or ("not_found" in text and "model" in text):
+            return (
+                f"O modelo '{settings.model}' não está disponível para esta conta. "
+                "Use um modelo atual em JARVIS_MODEL; o padrão do projeto é gemini-3.6-flash."
+            )
+        if "unauthenticated" in text or "401" in text or "api key" in text and "invalid" in text:
+            return "A GEMINI_API_KEY não foi aceita pela API do Gemini."
+        if "permission_denied" in text or "403" in text:
+            return "A API do Gemini recusou esta solicitação por permissão ou disponibilidade da conta."
+        if "429" in text or "resource_exhausted" in text:
+            return "A API do Gemini atingiu o limite de requisições ou cota disponível."
+        return raw[:900] or exc.__class__.__name__
+
+    def _trim_history(self, max_user_turns: int = 12) -> None:
+        starts = [
+            index
+            for index, step in enumerate(self.history)
+            if step.get("type") == "user_input"
+        ]
+        if len(starts) > max_user_turns:
+            self.history = self.history[starts[-max_user_turns] :]
+
+    def _generate(self, *, allow_tools: bool, finalizing: bool = False) -> Any:
+        last_error: Exception | None = None
+        attempts = 0
+
+        for attempt in range(settings.agent_retries + 1):
+            attempts = attempt + 1
+            try:
+                kwargs: dict[str, Any] = {
+                    "model": settings.model,
+                    "input": self.history,
+                    "store": False,
+                    "system_instruction": (
+                        f"{SYSTEM_PROMPT}\n\n{FINALIZE_PROMPT}"
+                        if finalizing
+                        else SYSTEM_PROMPT
+                    ),
+                    "generation_config": {"max_output_tokens": 2048},
+                    "timeout": settings.request_timeout_seconds,
+                }
+                if allow_tools:
+                    kwargs["tools"] = self.tools
+                return self.client.interactions.create(**kwargs)
+            except Exception as exc:  # fronteira de rede/provider
+                last_error = exc
+                if not self._should_retry(exc) or attempt >= settings.agent_retries:
+                    break
+                time.sleep(min(0.4 * (2**attempt), 1.5))
+
+        detail = self._friendly_error(last_error or RuntimeError("erro desconhecido"))
+        raise RuntimeError(
+            f"Falha ao consultar o Gemini após {attempts} tentativa(s): {detail}"
+        ) from last_error
+
     def ask(self, text: str) -> str:
         text = text.strip()
         if not text:
             return "Digite uma solicitação."
 
+        self._trim_history()
         self.history.append(
-            types.Content(role="user", parts=[types.Part(text=text)])
+            {
+                "type": "user_input",
+                "content": [{"type": "text", "text": text}],
+            }
         )
-        self.history = self.history[-24:]
 
         repeated_calls: Counter[str] = Counter()
 
         for _step in range(settings.max_agent_steps):
-            response = self._generate(self.history, allow_tools=True)
-            parts = self._response_parts(response)
-            function_parts = [part for part in parts if getattr(part, "function_call", None)]
+            interaction = self._generate(allow_tools=True)
+            steps = list(getattr(interaction, "steps", None) or [])
+            self.history.extend(self._step_to_dict(step) for step in steps)
 
-            if not function_parts:
-                answer = (response.text or "").strip() or "Não consegui produzir uma resposta."
-                self.history.append(
-                    types.Content(role="model", parts=[types.Part(text=answer)])
-                )
-                return answer
+            function_steps = [
+                step for step in steps if getattr(step, "type", None) == "function_call"
+            ]
+            if not function_steps:
+                answer = (getattr(interaction, "output_text", "") or "").strip()
+                return answer or "Não consegui produzir uma resposta."
 
-            candidate = response.candidates[0]
-            self.history.append(candidate.content)
-            tool_responses: list[types.Part] = []
+            for call in function_steps:
+                name = str(getattr(call, "name", "") or "")
+                call_id = str(getattr(call, "id", "") or "")
+                if not name or not call_id:
+                    raise RuntimeError("A API retornou uma chamada de ferramenta incompleta.")
 
-            for part in function_parts:
-                call = part.function_call
-                args = dict(call.args) if call.args else {}
-                signature = self._call_signature(call.name, args)
+                args = self._function_args(call)
+                signature = self._call_signature(name, args)
                 repeated_calls[signature] += 1
 
                 if repeated_calls[signature] > settings.tool_repeat_limit:
                     result = {
                         "ok": False,
-                        "tool": call.name,
+                        "tool": name,
                         "error": "repeated_call",
                         "message": (
                             "Chamada idêntica não executada novamente. "
@@ -146,31 +204,34 @@ class JarvisAssistant:
                         ),
                     }
                 else:
-                    result = execute_tool(call.name, args)
+                    result = execute_tool(name, args)
 
-                tool_responses.append(
-                    types.Part(
-                        function_response=types.FunctionResponse(
-                            name=call.name,
-                            response=result,
-                        )
-                    )
+                self.history.append(
+                    {
+                        "type": "function_result",
+                        "name": name,
+                        "call_id": call_id,
+                        "result": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(
+                                    result,
+                                    ensure_ascii=False,
+                                    default=str,
+                                ),
+                            }
+                        ],
+                    }
                 )
 
-            self.history.append(types.Content(role="user", parts=tool_responses))
+        interaction = self._generate(allow_tools=False, finalizing=True)
+        steps = list(getattr(interaction, "steps", None) or [])
+        self.history.extend(self._step_to_dict(step) for step in steps)
 
-        response = self._generate(
-            self.history,
-            allow_tools=False,
-            finalizing=True,
-        )
-        answer = (response.text or "").strip()
+        answer = (getattr(interaction, "output_text", "") or "").strip()
         if not answer:
             answer = (
                 "A tarefa atingiu o limite seguro de etapas e não houve "
                 "resultado final verificável."
             )
-        self.history.append(
-            types.Content(role="model", parts=[types.Part(text=answer)])
-        )
         return answer
