@@ -31,12 +31,36 @@ Não faça novas chamadas. Se algo falhou ou não foi comprovado, diga isso expl
 Não invente execução, estado, arquivo, aplicativo ou resultado."""
 
 
+def _normalize_json_schema(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "type" and isinstance(item, str):
+                normalized[key] = item.lower()
+            else:
+                normalized[key] = _normalize_json_schema(item)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_json_schema(item) for item in value]
+    return value
+
+
 class JarvisAssistant:
     def __init__(self, client: Any | None = None) -> None:
         settings.validate()
         self.client = client or genai.Client(api_key=settings.api_key)
         self.history: list[dict[str, Any]] = []
-        self.tools = [dict(tool) for tool in TOOL_DECLARATIONS]
+        self.tools = [
+            {
+                "type": "function",
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": _normalize_json_schema(
+                    tool.get("parameters", {"type": "object", "properties": {}})
+                ),
+            }
+            for tool in TOOL_DECLARATIONS
+        ]
 
     @staticmethod
     def _call_signature(name: str, args: dict[str, Any]) -> str:
@@ -106,7 +130,11 @@ class JarvisAssistant:
                 f"O modelo '{settings.model}' não está disponível para esta conta. "
                 "Use um modelo atual em JARVIS_MODEL; o padrão do projeto é gemini-3.6-flash."
             )
-        if "unauthenticated" in text or "401" in text or "api key" in text and "invalid" in text:
+        if (
+            "unauthenticated" in text
+            or "401" in text
+            or ("api key" in text and "invalid" in text)
+        ):
             return "A GEMINI_API_KEY não foi aceita pela API do Gemini."
         if "permission_denied" in text or "403" in text:
             return "A API do Gemini recusou esta solicitação por permissão ou disponibilidade da conta."
